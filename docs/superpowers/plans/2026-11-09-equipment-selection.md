@@ -18,12 +18,20 @@
 
 ## Tasks
 
-- [ ] Add failing tests for variable fleet/count retention, tonnage/type preservation, forklift/ladder switches, v1 migration, ladder setup-space and work-chart insufficiency, type-specific report output.
-- [ ] Implement schema/helpers/evaluation. Preserve fixed safety cases from first planner review and all 62 existing unit tests.
-- [ ] Add UI selectors and type-specific fields; update every hard-coded six/forklift presentation and existing fixtures.
-- [ ] Verify actual selection, switching/reloading and work sheet flows in desktop/mobile browser; full tests and production/portable build.
-- [ ] Fresh review of this newly requested extension only (the previous planner review is already complete); address important findings then publish one latest combined version.
+- [x] Add failing tests for variable fleet/count retention, tonnage/type preservation, forklift/ladder switches, v1 migration, ladder setup-space and work-chart insufficiency, type-specific report output.
+- [x] Implement schema/helpers/evaluation. Preserve fixed safety cases from first planner review and all 62 existing unit tests.
+- [x] Add UI selectors and type-specific fields; update every hard-coded six/forklift presentation and existing fixtures.
+- [x] Verify actual selection, switching/reloading and work sheet flows in desktop/mobile browser; full tests and production/portable build.
+- [x] Fresh review of this newly requested extension only (the previous planner review is already complete); address important findings then publish one latest combined version.
 
 ## Prior stage ledger
 
-Delivery planner implementation commit ba0afc3; review fixes are currently uncommitted. They cover pitched horizontal collision envelope, per-item known-failure precedence, and clearly marked stale work-sheet exports. Unit suite 62 passed; full browser suite 21 passed after fixes (verify log .data/planning-browser-final.log). First production build passed before review fixes, so final build/portable regeneration still required. Existing raw external viewer pin is still 1158a83 (old viewer); no new link should be advertised until the final artifact is committed/pushed and verified.
+Delivery planner implementation commit ba0afc3; review fixes were committed in 64615d5. They cover pitched horizontal collision envelope, per-item known-failure precedence, and clearly marked stale work-sheet exports. Unit suite 62 passed; full browser suite 21 passed after fixes (verify log .data/planning-browser-final.log). First production build passed before review fixes, so final build/portable regeneration still required. Existing raw external viewer pin is still 1158a83 (old viewer); no new link should be advertised until the final artifact is committed/pushed and verified.
+
+## Review and validation ledger
+
+Extension commit cd778a1 received one fresh read-only review. Important findings were reproduced with failing cases and corrected: (1) compare ladder body as well as outriggers against delivery unloading envelope; (2) aerial approval is now an exact per-candidate setup snapshot invalidated by position, direction, selected equipment or obstacle changes, and working-point approval clears when equipment/height/reach/load inputs change. Minor report wording was corrected so cargo/box trucks do not show retained wing dimensions.
+
+Accepted scope rulings: one handling unit at a time; unsupported other operations remain unknown; simultaneous arrangements remain unknown until individual paths exist; structural/lifting stability excluded; 3D replay uses first truck with an explicit UI notice, while every active truck is calculated. Profile preservation and v1 migration had no review defect. No follow-up reviewer round.
+
+86 unit tests and typecheck passed. Full browser suite passed 23/23; after confirmation changes the two affected desktop/mobile cases passed again, including explicit work-chart invalidation and per-candidate aerial invalidation. Initial new browser test timeout came from an exact label locator including select option text; corrected to accessible combobox roles and verified. Final production/portable verification and publication are recorded in docs/VERIFICATION.md and docs/DELIVERY.md.

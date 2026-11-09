@@ -27,6 +27,43 @@ export function outriggerRectangle(e: Equipment, pose: Pose, margin = 0) {
     pose.heading,
   );
 }
+// Exact context snapshot: no rounding or short hash may approve another setup.
+export function ladderSetupKey(p: DeliveryPlan, z: Zone): string {
+  const {
+    proof: _proof,
+    workingPointConfirmed: _chart,
+    ...equipment
+  } = p.handling;
+  const route = p.routes.find((r) => r.id === z.handlingRouteId);
+  return JSON.stringify({
+    origin: p.origin,
+    site: [p.site.id, p.site.entrance],
+    zone: {
+      id: z.id,
+      center: z.center,
+      width: z.width,
+      length: z.length,
+      height: z.height,
+      heading: z.heading,
+      openSky: z.openSky,
+    },
+    equipment,
+    route: route
+      ? {
+          id: route.id,
+          points: route.points,
+          sections: route.sections.map((s) => ({
+            slope: s.slope,
+            reverse: s.reverse,
+          })),
+          turnRadius: route.turnRadius,
+        }
+      : null,
+    obstacles: p.obstacles.map(({ proof: _p, ...o }) => o),
+  });
+}
+export const aerialReady = (p: DeliveryPlan, z: Zone) =>
+  z.aerialConfirmation === ladderSetupKey(p, z);
 export function ladderChecks(p: DeliveryPlan, z: Zone): Check[] {
   const e = p.handling,
     checks: Check[] = [],
@@ -80,7 +117,7 @@ export function ladderChecks(p: DeliveryPlan, z: Zone): Check[] {
   add(
     "ladder-aerial",
     "사다리 전개 방향·상공 공간",
-    proof && e.aerialClearanceConfirmed ? "pass" : "unknown",
+    proof && aerialReady(p, z) ? "pass" : "unknown",
     "작업 방향과 사다리 전개 영역의 건물·전선·수목 간섭을 현장에서 확인해야 합니다. 자동 붐 궤적 계산은 포함하지 않습니다.",
   );
   add(
@@ -171,16 +208,27 @@ export function ladderChecks(p: DeliveryPlan, z: Zone): Check[] {
             : t.tailLift !== null);
       add(
         "ladder-truck",
-        `아웃트리거 ↔ ${t.name} 하역 영역`,
+        `사다리차·아웃트리거 ↔ ${t.name} 하역 영역`,
         !valid
           ? "unknown"
-          : intersects(
+          : [
                 outriggerRectangle(e, pose, margin!),
-                unloadingRectangle(t, tp, z.mode, e.workingAisle ?? 0, margin!),
+                bodyRectangle(e, pose, margin!),
+              ].some((footprint) =>
+                intersects(
+                  footprint,
+                  unloadingRectangle(
+                    t,
+                    tp,
+                    z.mode,
+                    e.workingAisle ?? 0,
+                    margin!,
+                  ),
+                ),
               )
             ? "fail"
             : "pass",
-        "사다리차 아웃트리거와 정차 차량·하역 통로가 겹치면 설치할 수 없습니다.",
+        "사다리차 차체·아웃트리거와 정차 차량·하역 통로가 겹치면 설치할 수 없습니다.",
       );
     }
   return checks;

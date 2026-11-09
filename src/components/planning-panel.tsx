@@ -20,6 +20,7 @@ import {
   workOrderHtml,
   type WorkOrder,
 } from "@/lib/planning/persistence";
+import { aerialReady, ladderSetupKey } from "@/lib/planning/ladder";
 import EquipmentEditor from "./equipment-editor";
 export type Capture = {
   kind: "route" | "zone" | "obstacle";
@@ -128,6 +129,9 @@ export default function PlanningPanel(props: Props) {
         );
       // Imported confirmations must be reviewed on this device, even if the file says approved.
       next.site.proof.confirmed = false;
+      for (const z of next.zones) z.aerialConfirmation = null;
+      for (const e of [next.handling, ...next.handlingProfiles])
+        e.workingPointConfirmed = false;
       for (const x of [
         ...next.trucks,
         ...next.inactiveTrucks,
@@ -330,7 +334,8 @@ export default function PlanningPanel(props: Props) {
               <h2>3D 이동 확인</h2>
               <p className="muted">
                 주황: 차량 · 파랑: 반입 장비 · 금색 영역: 하역 공간. 비조향축
-                경로를 따라 강체 외형을 표시합니다.
+                경로를 따라 강체 외형을 표시합니다. 차량 재생은 1호 기준이며,
+                검사는 선택한 모든 차량에 적용합니다.
               </p>
               <div className="save-row">
                 <button
@@ -790,6 +795,23 @@ export default function PlanningPanel(props: Props) {
                 />
                 하차·설치 영역 상부가 개방된 야외임을 확인함
               </label>
+              {p.handling.kind === "ladder" && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={aerialReady(p, zone)}
+                    onChange={(e) =>
+                      updateZone({
+                        aerialConfirmation: e.target.checked
+                          ? ladderSetupKey(p, zone)
+                          : null,
+                      })
+                    }
+                  />
+                  이 후보의 장비 설치 위치·방향과 작업 영역의 건물·전선·수목
+                  간섭을 확인함
+                </label>
+              )}
               <ProofFields
                 label={zone.name}
                 value={zone.proof}

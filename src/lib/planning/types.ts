@@ -29,7 +29,6 @@ export type Equipment = {
   maxReach: Num;
   operatingLoadLimit: Num;
   workingPointConfirmed: boolean;
-  aerialClearanceConfirmed: boolean;
   proof: Proof;
   length: Num;
   width: Num;
@@ -82,6 +81,7 @@ export type Zone = {
   handlingRouteId: string;
   accessConfirmed: boolean;
   openSky: boolean;
+  aerialConfirmation: string | null;
   proof: Proof;
 };
 export type Obstacle = {
@@ -172,7 +172,6 @@ export function createEquipment(
     maxReach: null,
     operatingLoadLimit: null,
     workingPointConfirmed: false,
-    aerialClearanceConfirmed: false,
     name:
       kind === "truck"
         ? `차량 ${id.replace("truck-", "")}호`
@@ -238,6 +237,7 @@ export function createZone(id = crypto.randomUUID()): Zone {
     handlingRouteId: "",
     accessConfirmed: false,
     openSky: false,
+    aerialConfirmation: null,
     proof: proof(),
   };
 }

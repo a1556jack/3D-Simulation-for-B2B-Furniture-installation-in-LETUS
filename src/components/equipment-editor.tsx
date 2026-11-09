@@ -9,7 +9,11 @@ import {
   type Equipment,
   type Num,
 } from "@/lib/planning/types";
-import { resizeFleet, switchHandling } from "@/lib/planning/fleet";
+import {
+  resizeFleet,
+  switchHandling,
+  updateEquipmentProfile,
+} from "@/lib/planning/fleet";
 const common: [keyof Equipment, string][] = [
   ["length", "차체 전장 (m)"],
   ["width", "차체 폭 (m)"],
@@ -32,11 +36,7 @@ export default function EquipmentEditor({
   const e =
     [...p.trucks, p.handling].find((e) => e.id === selected) ?? p.trucks[0];
   function update(patch: Partial<Equipment>) {
-    const next = {
-      ...e,
-      ...patch,
-      proof: patch.proof ?? { ...e.proof, confirmed: false },
-    };
+    const next = updateEquipmentProfile(e, patch);
     change({
       ...p,
       trucks: p.trucks.map((t) => (t.id === e.id ? next : t)),
@@ -286,19 +286,16 @@ export default function EquipmentEditor({
       {e.kind === "ladder" && (
         <>
           <p className="muted">
-            층수에서 높이를 추정하지 않습니다. 실제 목표 높이·수평 거리·하중
-            조합을 제조사 작업표로 확인하세요. 최대 높이와 최대 도달 거리는
-            동시에 달성 가능한 값이 아닐 수 있습니다.
+            상공 간섭 확인은 각 하차 후보에서 기록합니다. 층수에서 높이를
+            추정하지 않습니다. 실제 목표 높이·수평 거리·하중 조합을 제조사
+            작업표로 확인하세요. 최대 높이와 최대 도달 거리는 동시에 달성 가능한
+            값이 아닐 수 있습니다.
           </p>
           {(
             [
               [
                 "workingPointConfirmed",
                 "이 높이·거리·하중 조합이 제조사 작업표에서 허용됨을 확인함",
-              ],
-              [
-                "aerialClearanceConfirmed",
-                "실제 전개 방향과 작업 영역의 건물·전선·수목 간섭을 확인함",
               ],
             ] as const
           ).map(([key, label]) => (

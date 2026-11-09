@@ -53,3 +53,23 @@ export function switchHandling(
     })),
   };
 }
+export function updateEquipmentProfile(
+  e: Equipment,
+  patch: Partial<Equipment>,
+): Equipment {
+  const changed = Object.keys(patch).some(
+    (k) =>
+      k !== "proof" &&
+      k !== "workingPointConfirmed" &&
+      JSON.stringify(e[k as keyof Equipment]) !==
+        JSON.stringify(patch[k as keyof Equipment]),
+  );
+  return {
+    ...e,
+    ...patch,
+    workingPointConfirmed:
+      patch.workingPointConfirmed ??
+      (changed ? false : e.workingPointConfirmed),
+    proof: patch.proof ?? { ...e.proof, confirmed: false },
+  };
+}

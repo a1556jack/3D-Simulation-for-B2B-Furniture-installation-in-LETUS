@@ -1,6 +1,11 @@
+import { ladderSetupKey } from "../src/lib/planning/ladder";
 import { test, expect } from "vitest";
 import { createPlan, createEquipment } from "../src/lib/planning/types";
-import { resizeFleet, switchHandling } from "../src/lib/planning/fleet";
+import {
+  resizeFleet,
+  switchHandling,
+  updateEquipmentProfile,
+} from "../src/lib/planning/fleet";
 import { createExample } from "../src/lib/planning/example";
 import { evaluatePlan } from "../src/lib/planning/evaluate";
 import {
@@ -116,7 +121,6 @@ function ladderPlan() {
     loadMass: 100,
     workingAisle: 4,
     workingPointConfirmed: false,
-    aerialClearanceConfirmed: true,
     proof,
   });
   const r = p.routes.find((r) => r.kind === "handling")!;
@@ -129,6 +133,7 @@ function ladderPlan() {
   r.sections[0].proof = { ...proof };
   p.zones[0].openSky = true;
   p.zones[0].proof = { ...proof };
+  p.zones[0].aerialConfirmation = ladderSetupKey(p, p.zones[0]);
   return p;
 }
 test("separate ladder height and reach maxima never establish a verified working point", () => {
@@ -242,4 +247,87 @@ test("ladder setup over parked delivery truck is rejected", () => {
       (k) => k.code === "ladder-truck" && k.status === "fail",
     ),
   ).toBe(true);
+});
+test("ladder body must also stay outside the delivery unloading envelope", () => {
+  const p = ladderPlan();
+  p.handling.workingPointConfirmed = true;
+  Object.assign(p.handling, {
+    outriggerWidth: 5,
+    outriggerLength: 2,
+    outriggerOffset: -2,
+  });
+  p.routes.find((r) => r.kind === "handling")!.points = [
+    [56, 30],
+    [56, 7],
+  ];
+  const c = evaluatePlan(p).candidates[0];
+  expect(
+    c.checks.some((k) => k.code === "ladder-truck" && k.status === "fail"),
+  ).toBe(true);
+  expect(c.status).toBe("fail");
+});
+test("aerial confirmation belongs only to the confirmed ladder candidate and setup", () => {
+  const p = ladderPlan();
+  p.handling.workingPointConfirmed = true;
+  const r = structuredClone(p.routes.find((r) => r.kind === "handling")!);
+  r.id = "new-handling";
+  r.points = [
+    [100, -12],
+    [60, -12],
+  ];
+  p.routes.push(r);
+  const z = {
+    ...structuredClone(p.zones[0]),
+    id: "second-zone",
+    handlingRouteId: r.id,
+  };
+  p.zones.push(z);
+  const result = evaluatePlan(p);
+  expect(result.candidates.find((c) => c.id === "Z-wide")?.status).toBe("pass");
+  expect(
+    result.candidates
+      .find((c) => c.id === "second-zone")
+      ?.checks.some(
+        (k) => k.code === "ladder-aerial" && k.status === "unknown",
+      ),
+  ).toBe(true);
+  r.points[1] = [65, -12];
+  expect(
+    evaluatePlan(p).candidates.find((c) => c.id === "second-zone")?.status,
+  ).not.toBe("pass");
+});
+test.each(["targetHeight", "requiredReach", "loadMass", "name"] as const)(
+  "changing ladder %s clears explicit work chart confirmation",
+  (field) => {
+    const p = ladderPlan();
+    p.handling.workingPointConfirmed = true;
+    const next = updateEquipmentProfile(p.handling, {
+      [field]: field === "name" ? "다른 모델" : 20,
+    });
+    expect(next.workingPointConfirmed).toBe(false);
+    expect(
+      updateEquipmentProfile(next, {
+        proof: { ...next.proof, confirmed: true },
+      }).workingPointConfirmed,
+    ).toBe(false);
+  },
+);
+test("moving the same ladder setup or changing obstacles invalidates its aerial confirmation", () => {
+  const p = ladderPlan();
+  p.handling.workingPointConfirmed = true;
+  p.routes.find((r) => r.kind === "handling")!.points[1] = [65, 12];
+  const c = evaluatePlan(p).candidates[0];
+  expect(c.checks.find((k) => k.code === "ladder-aerial")?.status).toBe(
+    "unknown",
+  );
+});
+test("non-wing truck work sheets omit retained wing dimensions", () => {
+  const p = createExample();
+  for (const e of p.trucks) {
+    e.vehicleType = "cargo";
+    e.sideAccess = true;
+  }
+  const html = workOrderHtml(makeWorkOrder(p));
+  expect(html).not.toContain("윙 추가 폭");
+  expect(html).toContain("측면 하역 가능 확인");
 });
