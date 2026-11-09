@@ -1,0 +1,37 @@
+{
+  "name": "letus-regional-3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build --webpack",
+    "start": "next start --hostname 0.0.0.0",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "maps:prepare": "node scripts/prepare-maps.mjs",
+    "test:browser": "playwright test",
+    "portable": "node scripts/build-portable.mjs",
+    "predev": "npm run maps:prepare",
+    "prebuild": "npm run maps:prepare",
+    "serve": "node scripts/serve-static.mjs out 4173"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.17.0",
+    "next": "^16.4.5",
+    "pmtiles": "^4.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "pbf": "^5.1.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

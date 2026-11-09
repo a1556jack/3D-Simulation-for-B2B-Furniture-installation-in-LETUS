@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+dist/
+.data/
+.env*
+!.env.example
+test-results/
+playwright-report/
+public/maps/
+public/vendor/
+*.tsbuildinfo

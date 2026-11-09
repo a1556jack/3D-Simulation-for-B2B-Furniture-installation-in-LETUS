@@ -1,0 +1,29 @@
+{
+  "provider": "OpenStreetMap / Protomaps",
+  "redistributor": "PLAYX1/playx-raven-maps",
+  "commit": "a30620ace8a174a0d7474c4785f564f22cdac064",
+  "files": [
+    {
+      "file": "seoul-metro.pmtiles",
+      "bytes": 74247210,
+      "sha256": "645728bf887798980e756b9e461b3f6d810f36765b4a11790f326f79186f6b65",
+      "source": "https://raw.githubusercontent.com/PLAYX1/playx-raven-maps/a30620ace8a174a0d7474c4785f564f22cdac064/seoul-metro.pmtiles",
+      "commit": "a30620ace8a174a0d7474c4785f564f22cdac064"
+    },
+    {
+      "file": "gangwon.pmtiles",
+      "bytes": 22675269,
+      "sha256": "1e324e68802bcff98fe375b70d002b9cef79ea1b62859c70bf27f63e6192a8df",
+      "source": "https://raw.githubusercontent.com/PLAYX1/playx-raven-maps/a30620ace8a174a0d7474c4785f564f22cdac064/gangwon.pmtiles",
+      "commit": "a30620ace8a174a0d7474c4785f564f22cdac064"
+    },
+    {
+      "file": "chungcheong.pmtiles",
+      "bytes": 44561008,
+      "sha256": "7add8a11b80b6a58085fecc8d114c7374dfc13629131815941ac839745888045",
+      "source": "https://raw.githubusercontent.com/PLAYX1/playx-raven-maps/a30620ace8a174a0d7474c4785f564f22cdac064/chungcheong.pmtiles",
+      "commit": "a30620ace8a174a0d7474c4785f564f22cdac064"
+    }
+  ],
+  "retrievedAt": "2026-11-09"
+}
