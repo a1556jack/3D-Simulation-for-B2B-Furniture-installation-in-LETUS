@@ -39,6 +39,24 @@ function compare(
       ? "pass"
       : "fail";
 }
+function geometryReady(e: Equipment) {
+  return (
+    proofReady(e.proof) &&
+    [e.length, e.width, e.height, e.wheelbase].every(positive) &&
+    e.frontOverhang !== null &&
+    e.rearOverhang !== null &&
+    Math.abs(e.length! - e.wheelbase! - e.frontOverhang - e.rearOverhang) <
+      0.05 &&
+    (e.kind === "truck" ||
+      [
+        e.forkLength,
+        e.loadLength,
+        e.loadWidth,
+        e.loadHeight,
+        e.carryHeight,
+      ].every((n) => n !== null))
+  );
+}
 function equipmentChecks(e: Equipment): Check[] {
   const dims = [
     "length",
@@ -105,7 +123,7 @@ export function evaluateRoute(
     })),
     motion = routeMotion(route, e),
     body = bodyExtents(e),
-    equipmentReady = aggregate(checks) === "pass";
+    equipmentReady = geometryReady(e);
   const add = (c: Check) =>
     checks.push({ ...c, routeId: route.id, equipmentId: e.id });
   add({
@@ -133,7 +151,7 @@ export function evaluateRoute(
     });
   for (let i = 0; i < route.sections.length; i++) {
     const s = route.sections[i],
-      ready = proofReady(s.proof) && equipmentReady,
+      ready = proofReady(s.proof) && proofReady(e.proof),
       point = route.points[i],
       label = `구간 ${i + 1}`;
     const slope = s.slope === null ? null : Math.atan(s.slope / 100),
@@ -142,22 +160,41 @@ export function evaluateRoute(
           ? null
           : body.height * Math.cos(slope) +
             (body.front + body.rear) * Math.abs(Math.sin(slope));
+    const widthComplete =
+      positive(e.width) && (e.kind === "truck" || e.loadWidth !== null);
+    const lengthComplete =
+      [e.wheelbase, e.frontOverhang, e.rearOverhang].every((n) => n !== null) &&
+      (e.kind === "truck" || (e.forkLength !== null && e.loadLength !== null));
+    const heightComplete =
+      positive(e.height) &&
+      (e.kind === "truck" ||
+        (e.carryHeight !== null && e.loadHeight !== null)) &&
+      (slope === 0 || lengthComplete);
+    const widthStatus = compare(
+      s.width,
+      body.width,
+      plan.margins.side === null ? null : plan.margins.side * 2,
+      ready,
+    );
+    const heightStatus = compare(
+      s.height,
+      projected,
+      plan.margins.vertical,
+      ready,
+    );
     add({
       code: "width",
       label: `${label} 유효 폭`,
-      status: compare(
-        s.width,
-        body.width,
-        plan.margins.side === null ? null : plan.margins.side * 2,
-        ready,
-      ),
+      status:
+        widthStatus === "pass" && !widthComplete ? "unknown" : widthStatus,
       detail: `공간 ${s.width ?? "?"}m / 장비 ${body.width.toFixed(2)}m + 좌우 여유 각 ${plan.margins.side ?? "?"}m`,
       point,
     });
     add({
       code: "height",
       label: `${label} 유효 높이`,
-      status: compare(s.height, projected, plan.margins.vertical, ready),
+      status:
+        heightStatus === "pass" && !heightComplete ? "unknown" : heightStatus,
       detail: `공간 ${s.height ?? "?"}m / 경사 반영 외형 ${projected?.toFixed(2) ?? "?"}m + 여유 ${plan.margins.vertical ?? "?"}m`,
       point,
     });
@@ -174,9 +211,18 @@ export function evaluateRoute(
         from !== null &&
         to !== null &&
         positive(e.clearance) &&
-        positive(e.wheelbase)
+        positive(e.wheelbase) &&
+        e.frontOverhang !== null &&
+        e.rearOverhang !== null &&
+        (e.kind === "truck" ||
+          (e.carryHeight !== null &&
+            e.forkLength !== null &&
+            e.loadLength !== null))
       ) {
-        const ground = e.kind === 'forklift' ? Math.min(e.clearance, e.carryHeight ?? 0) : e.clearance;
+        const ground =
+          e.kind === "forklift"
+            ? Math.min(e.clearance, e.carryHeight ?? 0)
+            : e.clearance;
         const change = Math.atan(from / 100) - Math.atan(to / 100),
           crest = change > 0,
           overhang = Math.max(
@@ -204,8 +250,20 @@ export function evaluateRoute(
       next = route.sections[p.section + 1],
       r = p.radius!,
       side = plan.margins.side;
+    const slopeExtra =
+      body.height *
+      Math.sin(
+        Math.atan(
+          Math.max(Math.abs(s?.slope ?? 0), Math.abs(next?.slope ?? 0)) / 100,
+        ),
+      );
     const required =
-      2 * (Math.hypot(r + body.width / 2, Math.max(body.front, body.rear)) - r);
+      2 *
+      (Math.hypot(
+        r + body.width / 2,
+        Math.max(body.front, body.rear) + slopeExtra,
+      ) -
+        r);
     const width =
       s?.width === null || next?.width === null
         ? null
@@ -230,6 +288,7 @@ export function evaluateRoute(
   for (const o of plan.obstacles) {
     const ready =
       equipmentReady &&
+      motion.issues.length === 0 &&
       proofReady(route.proof) &&
       proofReady(o.proof) &&
       positive(o.width) &&
@@ -246,15 +305,48 @@ export function evaluateRoute(
       });
       continue;
     }
-    const polygon = rectangle(o.center, o.length!, o.width!, (o.heading * Math.PI) / 180);
-    const hit = aggregate(motion.pieces.map(piece => {
-      const horizontal = sweptHit({pieces:[piece],issues:[],distance:piece.length}, e, polygon, plan.margins.side ?? 0);
-      if(horizontal === 'pass')return {status:'pass' as const};
-      const sections=[route.sections[piece.section],...(piece.center?[route.sections[piece.section+1]]:[])];
-      if(sections.some(s=>!s||s.slope===null||!proofReady(s.proof)))return {status:'unknown' as const};
-      const high=Math.max(...sections.map(s=>{const angle=Math.atan(s.slope!/100);return body.height*Math.cos(angle)+(body.front+body.rear)*Math.abs(Math.sin(angle));}))+(plan.margins.vertical??0);
-      return {status:o.base!>high||o.top!<0?'pass' as const:horizontal};
-    }));
+    const polygon = rectangle(
+      o.center,
+      o.length!,
+      o.width!,
+      (o.heading * Math.PI) / 180,
+    );
+    const hit = aggregate(
+      motion.pieces.map((piece) => {
+        const sections = [
+          route.sections[piece.section],
+          ...(piece.center ? [route.sections[piece.section + 1]] : []),
+        ];
+        if (
+          sections.some((s) => !s || s.slope === null || !proofReady(s.proof))
+        )
+          return { status: "unknown" as const };
+        const pitch = Math.atan(
+          Math.max(...sections.map((s) => Math.abs(s.slope!))) / 100,
+        );
+        const horizontal = sweptHit(
+          { pieces: [piece], issues: [], distance: piece.length },
+          e,
+          polygon,
+          plan.margins.side ?? 0,
+          pitch,
+        );
+        if (horizontal === "pass") return { status: "pass" as const };
+        const high =
+          Math.max(
+            ...sections.map((s) => {
+              const angle = Math.atan(s.slope! / 100);
+              return (
+                body.height * Math.cos(angle) +
+                (body.front + body.rear) * Math.abs(Math.sin(angle))
+              );
+            }),
+          ) + (plan.margins.vertical ?? 0);
+        return {
+          status: o.base! > high || o.top! < 0 ? ("pass" as const) : horizontal,
+        };
+      }),
+    );
     add({
       code: "obstacle",
       label: `장애물 · ${o.name}`,
@@ -365,6 +457,22 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
     forkRoute = plan.routes.find(
       (r) => r.id === z.forkliftRouteId && r.kind === "forklift",
     );
+  const stoppingSection = truckRoute?.sections.at(-1),
+    startingSection = forkRoute?.sections[0];
+  checks.push({
+    code: "loading-level",
+    label: "하차 지점 노면",
+    status:
+      stoppingSection?.slope === 0 &&
+      startingSection?.slope === 0 &&
+      proofReady(stoppingSection.proof) &&
+      proofReady(startingSection.proof)
+        ? "pass"
+        : "unknown",
+    detail:
+      "하역 영역은 수평 노면 모델입니다. 차량 종점과 지게차 시작 구간의 경사 0% 확인이 필요합니다.",
+    point: z.center,
+  });
   if (plan.concurrentTrucks > 1)
     checks.push({
       code: "concurrent-paths",
@@ -380,7 +488,7 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
         valid =
           ready &&
           complete &&
-          aggregate(equipmentChecks(e)) === "pass" &&
+          geometryReady(e) &&
           proofReady(truckRoute.proof) &&
           motion.pieces.length > 0 &&
           !motion.issues.length;
@@ -416,7 +524,7 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
         const fMotion = routeMotion(forkRoute, plan.forklift),
           fReady =
             valid &&
-            aggregate(equipmentChecks(plan.forklift)) === "pass" &&
+            geometryReady(plan.forklift) &&
             proofReady(forkRoute.proof) &&
             fMotion.pieces.length > 0 &&
             !fMotion.issues.length;

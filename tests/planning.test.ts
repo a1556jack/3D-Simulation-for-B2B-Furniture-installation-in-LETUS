@@ -343,16 +343,49 @@ describe("measured delivery decision", () => {
   });
 });
 test("pitched vehicle envelope cannot skip an overhead obstacle above its flat height", () => {
-  const p=fixture(); p.trucks[0].clearance=1;p.routes[0].sections[0].slope=15;
-  p.obstacles=[{id:'roof',name:'램프 배관',center:[25,0],width:2,length:5,heading:0,base:4.5,top:5.5,proof:{...proof}}];
-  expect(evaluateRoute(p,p.routes[0],p.trucks[0]).checks.some(c=>c.code==='obstacle'&&c.status==='fail')).toBe(true);
+  const p = fixture();
+  p.trucks[0].clearance = 1;
+  p.routes[0].sections[0].slope = 15;
+  p.obstacles = [
+    {
+      id: "roof",
+      name: "램프 배관",
+      center: [25, 0],
+      width: 2,
+      length: 5,
+      heading: 0,
+      base: 4.5,
+      top: 5.5,
+      proof: { ...proof },
+    },
+  ];
+  expect(
+    evaluateRoute(p, p.routes[0], p.trucks[0]).checks.some(
+      (c) => c.code === "obstacle" && c.status === "fail",
+    ),
+  ).toBe(true);
 });
 test("forklift carried load clearance participates in ramp transition checks", () => {
-  const p=fixture();p.forklift.clearance=0.5;p.forklift.carryHeight=0.02;p.routes[1].sections[0].slope=5;
-  expect(evaluateRoute(p,p.routes[1],p.forklift).checks.some(c=>c.code==='ramp'&&c.status==='fail')).toBe(true);
+  const p = fixture();
+  p.forklift.clearance = 0.5;
+  p.forklift.carryHeight = 0.02;
+  p.routes[1].sections[0].slope = 5;
+  expect(
+    evaluateRoute(p, p.routes[1], p.forklift).checks.some(
+      (c) => c.code === "ramp" && c.status === "fail",
+    ),
+  ).toBe(true);
 });
 
 describe("durable decision records", () => {
+  test("stale work sheet exports are visibly historical and cannot offer operational print", () => {
+    const w = makeWorkOrder(fixture()),
+      html = workOrderHtml(w, true);
+    expect(html).toContain("조건 변경 · 현장 사용 중지");
+    expect(html).not.toContain("조건상 추천");
+    expect(html).not.toContain('onclick="window.print()"');
+    expect(w.result.candidates[0].status).toBe("pass");
+  });
   test("malformed and cross-site plans are rejected before applying", () => {
     const p = fixture();
     expect(parsePlan(JSON.stringify(p)).trucks).toHaveLength(6);
@@ -399,4 +432,79 @@ describe("durable decision records", () => {
     expect(html).toContain("<svg");
     expect(html).toContain("11톤 윙바디");
   });
+});
+
+test.each([
+  [15, false, -3.05],
+  [-15, false, 57.9],
+  [15, true, -7.9],
+  [-15, true, 53],
+] as const)(
+  "pitch expands horizontal sweep: grade %s reverse %s",
+  (slope, reverse, x) => {
+    const p = fixture();
+    p.trucks[0].clearance = 1;
+    Object.assign(p.routes[0].sections[0], { slope, reverse });
+    p.obstacles = [
+      {
+        id: "pitch-wall",
+        name: "경사 간섭",
+        center: [x, 0],
+        width: 0.1,
+        length: 0.1,
+        heading: 0,
+        base: 0,
+        top: 8,
+        proof: { ...proof },
+      },
+    ];
+    expect(
+      evaluateRoute(p, p.routes[0], p.trucks[0]).checks.some(
+        (c) => c.code === "obstacle" && c.status === "fail",
+      ),
+    ).toBe(true);
+  },
+);
+test("missing steering radius does not mask a confirmed ceiling violation", () => {
+  const p = fixture();
+  p.forklift.minRadius = null;
+  p.routes[1].sections[0].height = 2;
+  const result = evaluatePlan(p);
+  expect(result.candidates[0].status).toBe("fail");
+  expect(
+    result.candidates[0].checks.some(
+      (c) => c.code === "height" && c.status === "fail",
+    ),
+  ).toBe(true);
+});
+test("inclined unloading does not receive a flat loading space recommendation", () => {
+  const p = fixture();
+  p.routes[0].sections[0].slope = 1;
+  expect(
+    evaluateZone(p, p.zones[0]).checks.some(
+      (c) => c.code === "loading-level" && c.status === "unknown",
+    ),
+  ).toBe(true);
+});
+test("missing steering information cannot hide a confirmed straight-body collision", () => {
+  const p = fixture();
+  p.trucks[0].minRadius = null;
+  p.obstacles = [
+    {
+      id: "wall",
+      name: "실측 벽",
+      center: [25, 0],
+      width: 1,
+      length: 4,
+      heading: 0,
+      base: 0,
+      top: 6,
+      proof: { ...proof },
+    },
+  ];
+  expect(
+    evaluateRoute(p, p.routes[0], p.trucks[0]).checks.some(
+      (c) => c.code === "obstacle" && c.status === "fail",
+    ),
+  ).toBe(true);
 });

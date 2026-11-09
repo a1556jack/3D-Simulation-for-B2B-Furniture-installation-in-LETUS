@@ -86,6 +86,19 @@ test("candidate comparison, replay and fixed work sheet are usable and marked sy
   await page.getByRole("button", { name: "결과", exact: true }).click();
   await expect(page.getByTestId("work-order-state")).toContainText("재검토");
   await expect(page.getByTestId("candidate-Z-wide")).toContainText("정보 부족");
+  const [historical] = await Promise.all([
+    page.waitForEvent("download"),
+    page
+      .getByRole("button", {
+        name: "이전 조건 작업서 (재검토본) 내려받기",
+        exact: true,
+      })
+      .click(),
+  ]);
+  const fs = await import("node:fs/promises");
+  const html = await fs.readFile((await historical.path())!, "utf8");
+  expect(html).toContain("조건 변경 · 현장 사용 중지");
+  expect(html).not.toContain("조건상 추천");
 });
 test("new measured route can be entered by keyboard and changing a dimension clears verification", async ({
   page,
@@ -158,13 +171,11 @@ test("mobile planner fits and invalid imports preserve the visible candidate", a
     .getByRole("button", { name: "합성 예제로 기능 확인", exact: true })
     .click();
   await page.getByRole("button", { name: "현장·파일", exact: true }).click();
-  await page
-    .getByLabel("반입 계획 파일 가져오기")
-    .setInputFiles({
-      name: "invalid.json",
-      mimeType: "application/json",
-      buffer: Buffer.from("{bad"),
-    });
+  await page.getByLabel("반입 계획 파일 가져오기").setInputFiles({
+    name: "invalid.json",
+    mimeType: "application/json",
+    buffer: Buffer.from("{bad"),
+  });
   await expect(page.getByTestId("plan-message")).toContainText(
     "읽을 수 없습니다",
   );

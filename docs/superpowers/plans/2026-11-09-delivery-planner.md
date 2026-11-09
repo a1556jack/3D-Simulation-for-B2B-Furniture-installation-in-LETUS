@@ -63,3 +63,10 @@ Ruling: preserve current work checkout and use existing static architecture, per
 Task 1: implementation and 49/49 unit tests passed; 21 planning cases include continuous thin-obstacle detection, actual stop envelope, parked-truck/forklift interference, and no real-site recommendation from unknown conditions. Typecheck passed.
 Ruling: simultaneous capacity is a conservative area count; until individual slot approach paths exist, concurrent >1 stays unknown rather than claiming six simultaneous maneuvers verified. This preserves useful capacity comparison without a false geometric pass.
 Task 2: UI/map/report integrated; overview/export failure regression and mobile invalid import pass. Investigating one real-browser workflow timeout before final acceptance.
+
+Final review: one independent read-only review at ba0afc3 found three Important issues. All accepted.
+Final: fixed pitched horizontal footprint — four ascending/descending/forward/reverse regressions RED→GREEN; conservative longitudinal expansion added to swept geometry and corner width. Inclined unloading remains unknown pending a suitable model.
+Final: fixed unrelated missing dimension hiding a known failure — height and straight collision regressions RED→GREEN; required inputs are checked per item, while other missing equipment fields remain unknown.
+Final: fixed stale work sheet download — historical export regression RED→GREEN; exported file has explicit use-stop banner, no operational print button or current recommendation wording, and original snapshot remains immutable. Browser export coverage added.
+Ruling: distance is the first tie-breaker between fully passing candidates, capacity second — sequential unloading gains no practical value from surplus empty slots; this is documented in PLANNER.md. If concurrent dispatch becomes required, its optimization priorities need a separate model.
+Final reviewer accepted the documented exclusions and conservative concurrency handling; no additional deferred behavior was silently omitted. Unit suite after fixes: 62/62, typecheck passed.

@@ -65,12 +65,15 @@ export function bodyRectangle(
   e: Equipment,
   pose: Pose,
   margin: number,
+  pitch = 0,
 ): Point[] {
   const b = bodyExtents(e),
-    d = (b.front - b.rear) / 2;
+    d = (b.front - b.rear) / 2,
+    // Union bound of the level and pitched box, including its upper corners.
+    longitudinalExtra = b.height * Math.abs(Math.sin(pitch));
   return rectangle(
     [pose.x + d * Math.cos(pose.heading), pose.y + d * Math.sin(pose.heading)],
-    b.front + b.rear + 2 * margin,
+    b.front + b.rear + 2 * (margin + longitudinalExtra),
     b.width + 2 * margin,
     pose.heading,
   );
@@ -315,14 +318,15 @@ export function sweptHit(
   e: Equipment,
   obstacle: Point[],
   margin: number,
+  pitch = 0,
 ): "fail" | "unknown" | "pass" {
   let uncertain = false;
   const extent = bodyExtents(e);
   for (const piece of m.pieces) {
     if (!piece.center) {
       const sweep = hull([
-        ...bodyRectangle(e, piecePose(piece, 0), margin),
-        ...bodyRectangle(e, piecePose(piece, 1), margin),
+        ...bodyRectangle(e, piecePose(piece, 0), margin, pitch),
+        ...bodyRectangle(e, piecePose(piece, 1), margin, pitch),
       ]);
       if (intersects(sweep, obstacle)) return "fail";
       continue;
@@ -331,18 +335,23 @@ export function sweptHit(
       maxR =
         piece.radius! +
         Math.hypot(
-          Math.max(extent.front, extent.rear) + margin,
+          Math.max(extent.front, extent.rear) +
+            margin +
+            extent.height * Math.abs(Math.sin(pitch)),
           extent.width / 2 + margin,
         ),
       guard = maxR * (1 - Math.cos(Math.abs(piece.sweep!) / n / 2));
     for (let j = 0; j <= n; j++)
       if (
-        intersects(bodyRectangle(e, piecePose(piece, j / n), margin), obstacle)
+        intersects(
+          bodyRectangle(e, piecePose(piece, j / n), margin, pitch),
+          obstacle,
+        )
       )
         return "fail";
     for (let j = 0; j < n; j++) {
-      const a = bodyRectangle(e, piecePose(piece, j / n), margin),
-        b = bodyRectangle(e, piecePose(piece, (j + 1) / n), margin);
+      const a = bodyRectangle(e, piecePose(piece, j / n), margin, pitch),
+        b = bodyRectangle(e, piecePose(piece, (j + 1) / n), margin, pitch);
       const expanded = hull(
         [...a, ...b].flatMap(
           ([x, y]) =>

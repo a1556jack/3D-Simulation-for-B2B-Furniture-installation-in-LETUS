@@ -443,13 +443,17 @@ export default function PlanningPanel(props: Props) {
                   className="text-button"
                   onClick={() =>
                     downloadText(
-                      workOrderHtml(order),
-                      "LETUS-반입작업서.html",
+                      workOrderHtml(order, isStale(order, p)),
+                      isStale(order, p)
+                        ? "LETUS-이전조건-재검토본.html"
+                        : "LETUS-반입작업서.html",
                       "text/html",
                     )
                   }
                 >
-                  발행한 작업서 파일 내려받기
+                  {isStale(order, p)
+                    ? "이전 조건 작업서 (재검토본) 내려받기"
+                    : "발행한 작업서 파일 내려받기"}
                 </button>
               </>
             )}
