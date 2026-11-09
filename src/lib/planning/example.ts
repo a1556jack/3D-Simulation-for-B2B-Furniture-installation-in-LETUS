@@ -30,7 +30,7 @@ export function createExample(): DeliveryPlan {
       tailLift: 1.5,
       proof: { ...proof },
     });
-  Object.assign(p.forklift, {
+  Object.assign(p.handling, {
     length: 4,
     width: 1.5,
     height: 2.5,
@@ -64,7 +64,7 @@ export function createExample(): DeliveryPlan {
       { width: 8, height: 8, slope: 0, reverse: false, proof: { ...proof } },
     ],
   });
-  const f = createRoute("forklift", "route-forklift");
+  const f = createRoute("handling", "route-forklift");
   Object.assign(f, {
     name: "하차 → 작업 종점 · 합성",
     points: [
@@ -88,7 +88,7 @@ export function createExample(): DeliveryPlan {
     height: 8,
     heading: 0,
     truckRouteId: r.id,
-    forkliftRouteId: f.id,
+    handlingRouteId: f.id,
     accessConfirmed: true,
     proof: { ...proof },
   });

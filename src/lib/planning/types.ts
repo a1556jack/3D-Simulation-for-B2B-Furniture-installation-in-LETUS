@@ -15,7 +15,21 @@ export function proofReady(p: Proof) {
 export type Equipment = {
   id: string;
   name: string;
-  kind: "truck" | "forklift";
+  kind: "truck" | "forklift" | "ladder" | "other";
+  tonnage: Num;
+  vehicleType: "wing" | "box" | "cargo";
+  steering: "front" | "rear";
+  sideAccess: boolean | null;
+  outriggerWidth: Num;
+  outriggerLength: Num;
+  outriggerOffset: Num;
+  targetHeight: Num;
+  requiredReach: Num;
+  maxWorkingHeight: Num;
+  maxReach: Num;
+  operatingLoadLimit: Num;
+  workingPointConfirmed: boolean;
+  aerialClearanceConfirmed: boolean;
   proof: Proof;
   length: Num;
   width: Num;
@@ -48,7 +62,7 @@ export type Section = {
 export type Route = {
   id: string;
   name: string;
-  kind: "truck" | "forklift";
+  kind: "truck" | "handling";
   points: Point[];
   sections: Section[];
   turnRadius: Num;
@@ -65,8 +79,9 @@ export type Zone = {
   heading: number;
   mode: "side" | "rear";
   truckRouteId: string;
-  forkliftRouteId: string;
+  handlingRouteId: string;
   accessConfirmed: boolean;
+  openSky: boolean;
   proof: Proof;
 };
 export type Obstacle = {
@@ -81,12 +96,14 @@ export type Obstacle = {
   proof: Proof;
 };
 export type DeliveryPlan = {
-  version: 1;
+  version: 2;
   mode: "site" | "example";
   origin: Point;
   site: { id: string; address: string; entrance: string; proof: Proof };
   trucks: Equipment[];
-  forklift: Equipment;
+  handling: Equipment;
+  inactiveTrucks: Equipment[];
+  handlingProfiles: Equipment[];
   routes: Route[];
   zones: Zone[];
   obstacles: Obstacle[];
@@ -142,10 +159,24 @@ export function createEquipment(
   return {
     id,
     kind,
+    tonnage: kind === "truck" ? 11 : kind === "forklift" ? 3 : null,
+    vehicleType: "wing",
+    steering: kind === "forklift" ? "rear" : "front",
+    sideAccess: null,
+    outriggerWidth: null,
+    outriggerLength: null,
+    outriggerOffset: null,
+    targetHeight: null,
+    requiredReach: null,
+    maxWorkingHeight: null,
+    maxReach: null,
+    operatingLoadLimit: null,
+    workingPointConfirmed: false,
+    aerialClearanceConfirmed: false,
     name:
       kind === "truck"
-        ? `11톤 윙바디 ${id.replace("truck-", "")}호`
-        : "3톤 지게차",
+        ? `차량 ${id.replace("truck-", "")}호`
+        : HANDLING_LABELS[kind],
     proof: proof(),
     length: null,
     width: null,
@@ -184,7 +215,7 @@ export function createRoute(
 ): Route {
   return {
     id,
-    name: kind === "truck" ? "차량 접근로" : "지게차 반입로",
+    name: kind === "truck" ? "차량 접근로" : "장비 이동 경로",
     kind,
     points: [],
     sections: [],
@@ -204,14 +235,15 @@ export function createZone(id = crypto.randomUUID()): Zone {
     heading: 0,
     mode: "side",
     truckRouteId: "",
-    forkliftRouteId: "",
+    handlingRouteId: "",
     accessConfirmed: false,
+    openSky: false,
     proof: proof(),
   };
 }
 export function createPlan(): DeliveryPlan {
   return {
-    version: 1,
+    version: 2,
     mode: "site",
     origin: [127.299745, 37.22836],
     site: {
@@ -223,7 +255,9 @@ export function createPlan(): DeliveryPlan {
     trucks: Array.from({ length: 6 }, (_, i) =>
       createEquipment("truck", `truck-${i + 1}`),
     ),
-    forklift: createEquipment("forklift", "forklift-1"),
+    handling: createEquipment("forklift", "forklift-1"),
+    inactiveTrucks: [],
+    handlingProfiles: [],
     routes: [],
     zones: [],
     obstacles: [],
@@ -237,4 +271,16 @@ export function aggregate(checks: { status: Verdict }[]): Verdict {
     : !checks.length || checks.some((c) => c.status === "unknown")
       ? "unknown"
       : "pass";
+}
+
+export const BODY_LABELS = { wing: "윙바디", box: "탑차", cargo: "카고" };
+export const HANDLING_LABELS = {
+  forklift: "지게차",
+  ladder: "사다리차",
+  other: "기타 반입 장비",
+};
+export function equipmentLabel(e: Equipment) {
+  const type =
+    e.kind === "truck" ? BODY_LABELS[e.vehicleType] : HANDLING_LABELS[e.kind];
+  return `${e.tonnage === null ? "" : `${e.tonnage}톤 `}${type}${e.name === type ? "" : ` · ${e.name}`}`;
 }

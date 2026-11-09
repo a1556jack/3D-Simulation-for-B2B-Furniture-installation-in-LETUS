@@ -51,7 +51,7 @@ function fixture(): DeliveryPlan {
       tailLift: 1.5,
       proof: { ...proof },
     });
-  Object.assign(p.forklift, {
+  Object.assign(p.handling, {
     length: 4,
     width: 1.5,
     height: 2.5,
@@ -79,7 +79,7 @@ function fixture(): DeliveryPlan {
     { width: 8, height: 8, slope: 0, reverse: false, proof: { ...proof } },
   ];
   a.proof = { ...proof };
-  const f = createRoute("forklift", "F");
+  const f = createRoute("handling", "F");
   f.points = [
     [50, 8],
     [80, 8],
@@ -99,7 +99,7 @@ function fixture(): DeliveryPlan {
     height: 8,
     heading: 0,
     truckRouteId: a.id,
-    forkliftRouteId: f.id,
+    handlingRouteId: f.id,
     proof: { ...proof },
     accessConfirmed: true,
   });
@@ -162,6 +162,7 @@ describe("measured delivery decision", () => {
       ),
     ).toBe(7.5);
     t.kind = "forklift";
+    t.steering = "rear";
     t.forkLength = 0;
     t.loadLength = 0;
     t.loadWidth = 0;
@@ -367,11 +368,11 @@ test("pitched vehicle envelope cannot skip an overhead obstacle above its flat h
 });
 test("forklift carried load clearance participates in ramp transition checks", () => {
   const p = fixture();
-  p.forklift.clearance = 0.5;
-  p.forklift.carryHeight = 0.02;
+  p.handling.clearance = 0.5;
+  p.handling.carryHeight = 0.02;
   p.routes[1].sections[0].slope = 5;
   expect(
-    evaluateRoute(p, p.routes[1], p.forklift).checks.some(
+    evaluateRoute(p, p.routes[1], p.handling).checks.some(
       (c) => c.code === "ramp" && c.status === "fail",
     ),
   ).toBe(true);
@@ -467,7 +468,7 @@ test.each([
 );
 test("missing steering radius does not mask a confirmed ceiling violation", () => {
   const p = fixture();
-  p.forklift.minRadius = null;
+  p.handling.minRadius = null;
   p.routes[1].sections[0].height = 2;
   const result = evaluatePlan(p);
   expect(result.candidates[0].status).toBe("fail");

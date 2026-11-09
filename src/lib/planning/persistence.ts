@@ -1,5 +1,7 @@
 import {
   SITE_ID,
+  createEquipment,
+  equipmentLabel,
   type DeliveryPlan,
   type PlanResult,
   type Proof,
@@ -40,6 +42,15 @@ function checkProof(v: unknown): asserts v is Proof {
     );
 }
 const equipmentKeys = [
+  "tonnage",
+  "outriggerWidth",
+  "outriggerLength",
+  "outriggerOffset",
+  "targetHeight",
+  "requiredReach",
+  "maxWorkingHeight",
+  "maxReach",
+  "operatingLoadLimit",
   "length",
   "width",
   "height",
@@ -73,9 +84,33 @@ export function parsePlan(raw: string): DeliveryPlan {
     throw Error("계획 JSON을 읽을 수 없습니다.");
   }
   if (obj(p) && obj(p.plan)) p = p.plan;
+  if (obj(p) && p.version === 1) {
+    assert(Array.isArray(p.trucks) && p.trucks.length === 6 && obj(p.forklift));
+    const migrateEquipment = (e: unknown, kind: "truck" | "forklift") => {
+      assert(obj(e) && e.kind === kind && typeof e.id === "string");
+      return { ...createEquipment(kind, e.id), ...e };
+    };
+    p.trucks = p.trucks.map((e) => migrateEquipment(e, "truck"));
+    p.handling = migrateEquipment(p.forklift, "forklift");
+    delete p.forklift;
+    p.inactiveTrucks = [];
+    p.handlingProfiles = [];
+    assert(Array.isArray(p.routes) && Array.isArray(p.zones));
+    for (const r of p.routes) {
+      assert(obj(r));
+      if (r.kind === "forklift") r.kind = "handling";
+    }
+    for (const z of p.zones) {
+      assert(obj(z));
+      z.handlingRouteId = z.forkliftRouteId;
+      delete z.forkliftRouteId;
+      z.openSky = false;
+    }
+    p.version = 2;
+  }
   assert(
     obj(p) &&
-      p.version === 1 &&
+      p.version === 2 &&
       (p.mode === "site" || p.mode === "example") &&
       point(p.origin),
   );
@@ -90,7 +125,17 @@ export function parsePlan(raw: string): DeliveryPlan {
   );
   assert(str(p.site.address, 300) && str(p.site.entrance, 200));
   checkProof(p.site.proof);
-  assert(Array.isArray(p.trucks) && p.trucks.length === 6 && obj(p.forklift));
+  assert(
+    Array.isArray(p.trucks) &&
+      p.trucks.length >= 1 &&
+      p.trucks.length <= 20 &&
+      obj(p.handling),
+  );
+  assert(
+    Array.isArray(p.inactiveTrucks) &&
+      p.trucks.length + p.inactiveTrucks.length <= 20,
+  );
+  assert(Array.isArray(p.handlingProfiles) && p.handlingProfiles.length <= 2);
   const ids = new Set<string>();
   function identity(v: unknown) {
     assert(obj(v) && str(v.id, 100) && v.id.trim() && str(v.name, 100));
@@ -98,16 +143,36 @@ export function parsePlan(raw: string): DeliveryPlan {
     ids.add(v.id);
     checkProof(v.proof);
   }
-  for (const e of [...p.trucks, p.forklift]) {
+  for (const e of [
+    ...p.trucks,
+    p.handling,
+    ...p.inactiveTrucks,
+    ...p.handlingProfiles,
+  ]) {
     identity(e);
-    assert(obj(e) && (e.kind === "truck" || e.kind === "forklift"));
+    assert(
+      obj(e) &&
+        ["truck", "forklift", "ladder", "other"].includes(String(e.kind)),
+    );
+    assert(
+      ["wing", "box", "cargo"].includes(String(e.vehicleType)) &&
+        ["front", "rear"].includes(String(e.steering)),
+    );
+    assert(e.sideAccess === null || typeof e.sideAccess === "boolean");
+    assert(
+      typeof e.workingPointConfirmed === "boolean" &&
+        typeof e.aerialClearanceConfirmed === "boolean",
+    );
     for (const key of equipmentKeys)
       assert(
         e[key] === null ||
           num(
             e[key],
-            0,
-            key === "mass" || key === "ratedCapacity" || key === "loadMass"
+            key === "outriggerOffset" ? -100 : 0,
+            key === "operatingLoadLimit" ||
+              key === "mass" ||
+              key === "ratedCapacity" ||
+              key === "loadMass"
               ? 1e6
               : 100,
           ),
@@ -115,7 +180,13 @@ export function parsePlan(raw: string): DeliveryPlan {
       );
   }
   assert(
-    p.trucks.every((e) => e.kind === "truck") && p.forklift.kind === "forklift",
+    [...p.trucks, ...p.inactiveTrucks].every((e) => e.kind === "truck") &&
+      p.handling.kind !== "truck" &&
+      p.handlingProfiles.every((e) => e.kind !== "truck"),
+  );
+  assert(
+    new Set([p.handling, ...p.handlingProfiles].map((e) => e.kind)).size ===
+      p.handlingProfiles.length + 1,
   );
   assert(
     Array.isArray(p.routes) &&
@@ -130,7 +201,7 @@ export function parsePlan(raw: string): DeliveryPlan {
     identity(r);
     assert(
       obj(r) &&
-        (r.kind === "truck" || r.kind === "forklift") &&
+        (r.kind === "truck" || r.kind === "handling") &&
         Array.isArray(r.points) &&
         r.points.length <= 24 &&
         r.points.every(point) &&
@@ -155,8 +226,9 @@ export function parsePlan(raw: string): DeliveryPlan {
         num(z.heading, -360, 360) &&
         (z.mode === "side" || z.mode === "rear") &&
         str(z.truckRouteId, 100) &&
-        str(z.forkliftRouteId, 100) &&
-        typeof z.accessConfirmed === "boolean",
+        str(z.handlingRouteId, 100) &&
+        typeof z.accessConfirmed === "boolean" &&
+        typeof z.openSky === "boolean",
     );
     for (const k of ["width", "length", "height"])
       assert(z[k] === null || num(z[k], 0, 500));
@@ -175,7 +247,10 @@ export function parsePlan(raw: string): DeliveryPlan {
   assert(obj(p.margins));
   for (const k of ["side", "vertical"])
     assert(p.margins[k] === null || num(p.margins[k], 0, 10));
-  assert(num(p.concurrentTrucks, 1, 6) && Number.isInteger(p.concurrentTrucks));
+  assert(
+    num(p.concurrentTrucks, 1, p.trucks.length) &&
+      Number.isInteger(p.concurrentTrucks),
+  );
   return p as unknown as DeliveryPlan;
 }
 export type WorkOrder = {
@@ -236,5 +311,5 @@ export function workOrderHtml(w: WorkOrder, stale = false) {
     result = w.result,
     selected = result.candidates.find((c) => c.id === w.selectedId),
     esc = escapeHtml;
-  return `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>LETUS 반입 작업서</title><style>body{font:14px/1.65 sans-serif;color:#183d38;max-width:960px;margin:30px auto;padding:20px}h1,h2{line-height:1.3}table{border-collapse:collapse;width:100%;margin:15px 0}td,th{padding:8px;border:1px solid #ccd9d5;text-align:left}tr{break-inside:avoid}small{color:#5e6c68}.fail{color:#a33220}.unknown{color:#8a600d}.pass{color:#236549}svg{width:100%;max-height:440px}@media print{button{display:none}body{margin:0;padding:0;font-size:11px}h2{break-after:avoid}}button{padding:12px;cursor:pointer}</style><button ${stale ? "disabled" : 'onclick="window.print()"'}>인쇄 / PDF 저장</button>${stale ? '<div style="border:3px solid #a33220;padding:18px;color:#a33220;font-size:22px;font-weight:bold">조건 변경 · 현장 사용 중지<br/>이전 조건의 참고용 기록입니다. 재검토·재발행이 필요합니다.</div>' : ""}<h1>LETUS 반입 작업서 ${p.mode === "example" ? "— 합성 예제 · 현장 사용 금지" : ""}</h1><p>${esc(p.site.address)}<br/>작업 동·반입구: ${esc(p.site.entrance || "미확인")}<br/>발행: ${esc(new Date(w.createdAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }))} · 버전 ${esc(w.id)}</p><p>발행 당시 조건을 고정한 기록입니다. 이후 현장·장비 변경 여부를 원본 계획과 대조하세요. 전체 ${p.trucks.length}대 / 동시 ${p.concurrentTrucks}대 계획.</p>${routeSvg(p)}<h2>선택한 작업 대상: ${esc(selected?.name ?? "미지정")}</h2><table><tr><th>후보</th><th>판정</th><th>검토 이유</th></tr>${result.candidates.map((c) => `<tr><td>${esc(c.name)}</td><td>${verdict[c.status]}</td><td>${esc(c.reason)}</td></tr>`).join("")}</table><h2>선택 후보 검사 결과</h2>${selected ? [selected].map((c) => `<h3 class="${c.status}">${esc(c.name)} — ${verdict[c.status]}${result.recommendedId === c.id ? (stale ? " · 이전 조건 기록" : " · 조건상 추천") : ""}</h3><p>${esc(c.reason)}</p><table><thead><tr><th>검사</th><th>판정</th><th>이유 / 위치</th></tr></thead><tbody>${c.checks.map((k) => `<tr><td>${esc(k.label)}${k.equipmentId ? `<br/><small>${esc(k.equipmentId)}</small>` : ""}</td><td class="${k.status}">${verdict[k.status]}</td><td>${esc(k.detail)}${k.point ? ` · 기준점 동 ${k.point[0].toFixed(1)}m / 북 ${k.point[1].toFixed(1)}m` : ""}</td></tr>`).join("")}</tbody></table>`).join("") : "<p>후보가 없어 정보 부족입니다.</p>"}<h2>적용 장비</h2><table><tr><th>장비</th><th>전장 × 폭 × 높이(m)</th><th>축간거리 / 회전반경(m)</th><th>출처·확인일</th></tr>${[...p.trucks, p.forklift].map((e) => `<tr><td>${esc(e.name)}</td><td>${e.length ?? "?"} × ${e.width ?? "?"} × ${e.height ?? "?"}</td><td>${e.wheelbase ?? "?"} / ${e.minRadius ?? "?"}<br/><small>${e.kind === "truck" ? `윙 추가 폭 ${e.wingSide ?? "?"}m · 추가 높이 ${e.wingRise ?? "?"}m · 리프트 ${e.tailLift ?? "?"}m` : `적재물 ${e.loadWidth ?? "?"} × ${e.loadLength ?? "?"} × ${e.loadHeight ?? "?"}m / ${e.loadMass ?? "?"}kg · 운반 높이 ${e.carryHeight ?? "?"}m · 자중 ${e.mass ?? "?"}kg · 정격 ${e.ratedCapacity ?? "?"}kg (능력 판정 아님)`}</small></td><td>${esc(e.proof.source || "미기록")}<br/>${esc(e.proof.date || "미확인")}</td></tr>`).join("")}</table><h2>공간 자료 출처</h2><table><tr><th>대상</th><th>출처·확인일</th></tr>${[p.site, ...p.routes, ...p.routes.flatMap((r) => r.sections.map((s, i) => ({ ...s, name: `${r.name} 구간 ${i + 1}` }))), ...p.zones, ...p.obstacles].map((item) => `<tr><td>${esc("name" in item ? item.name : "작업 동·반입구")}</td><td>${esc(item.proof.source || "미기록")} · ${esc(item.proof.date || "미확인")} · ${item.proof.confirmed ? "확인함" : "검토 대기"}</td></tr>`).join("")}</table><h2>별도 확인</h2><p>바닥 구조·지게차 전도 안정성·실제 인양능력·유도자 배치·운영시간·통행 허가를 작업 전 확인하세요. E/V 탑승은 자동 판정에서 제외합니다. 계산은 입력한 강체 외형·평면 노면·원호 조향 모델에 한정하며 현장 실측을 대체하지 않습니다.</p></html>`;
+  return `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>LETUS 반입 작업서</title><style>body{font:14px/1.65 sans-serif;color:#183d38;max-width:960px;margin:30px auto;padding:20px}h1,h2{line-height:1.3}table{border-collapse:collapse;width:100%;margin:15px 0}td,th{padding:8px;border:1px solid #ccd9d5;text-align:left}tr{break-inside:avoid}small{color:#5e6c68}.fail{color:#a33220}.unknown{color:#8a600d}.pass{color:#236549}svg{width:100%;max-height:440px}@media print{button{display:none}body{margin:0;padding:0;font-size:11px}h2{break-after:avoid}}button{padding:12px;cursor:pointer}</style><button ${stale ? "disabled" : 'onclick="window.print()"'}>인쇄 / PDF 저장</button>${stale ? '<div style="border:3px solid #a33220;padding:18px;color:#a33220;font-size:22px;font-weight:bold">조건 변경 · 현장 사용 중지<br/>이전 조건의 참고용 기록입니다. 재검토·재발행이 필요합니다.</div>' : ""}<h1>LETUS 반입 작업서 ${p.mode === "example" ? "— 합성 예제 · 현장 사용 금지" : ""}</h1><p>${esc(p.site.address)}<br/>작업 동·반입구: ${esc(p.site.entrance || "미확인")}<br/>발행: ${esc(new Date(w.createdAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }))} · 버전 ${esc(w.id)}</p><p>발행 당시 조건을 고정한 기록입니다. 이후 현장·장비 변경 여부를 원본 계획과 대조하세요. 전체 ${p.trucks.length}대 / 동시 ${p.concurrentTrucks}대 계획.</p>${routeSvg(p)}<h2>선택한 작업 대상: ${esc(selected?.name ?? "미지정")}</h2><table><tr><th>후보</th><th>판정</th><th>검토 이유</th></tr>${result.candidates.map((c) => `<tr><td>${esc(c.name)}</td><td>${verdict[c.status]}</td><td>${esc(c.reason)}</td></tr>`).join("")}</table><h2>선택 후보 검사 결과</h2>${selected ? [selected].map((c) => `<h3 class="${c.status}">${esc(c.name)} — ${verdict[c.status]}${result.recommendedId === c.id ? (stale ? " · 이전 조건 기록" : " · 조건상 추천") : ""}</h3><p>${esc(c.reason)}</p><table><thead><tr><th>검사</th><th>판정</th><th>이유 / 위치</th></tr></thead><tbody>${c.checks.map((k) => `<tr><td>${esc(k.label)}${k.equipmentId ? `<br/><small>${esc(k.equipmentId)}</small>` : ""}</td><td class="${k.status}">${verdict[k.status]}</td><td>${esc(k.detail)}${k.point ? ` · 기준점 동 ${k.point[0].toFixed(1)}m / 북 ${k.point[1].toFixed(1)}m` : ""}</td></tr>`).join("")}</tbody></table>`).join("") : "<p>후보가 없어 정보 부족입니다.</p>"}<h2>적용 장비</h2><table><tr><th>장비</th><th>전장 × 폭 × 높이(m)</th><th>축간거리 / 회전반경(m)</th><th>출처·확인일</th></tr>${[...p.trucks, p.handling].map((e) => `<tr><td>${esc(equipmentLabel(e))}</td><td>${e.length ?? "?"} × ${e.width ?? "?"} × ${e.height ?? "?"}</td><td>${e.wheelbase ?? "?"} / ${e.minRadius ?? "?"}<br/><small>${e.kind === "ladder" ? `아웃트리거 ${e.outriggerWidth ?? "?"} × ${e.outriggerLength ?? "?"}m · 기준축 앞 오프셋 ${e.outriggerOffset ?? "?"}m · 목표 높이 ${e.targetHeight ?? "?"}m / 수평 도달 ${e.requiredReach ?? "?"}m · 적재 ${e.loadMass ?? "?"}kg / 작업점 허용 ${e.operatingLoadLimit ?? "?"}kg · 작업표 ${e.workingPointConfirmed ? "확인" : "미확인"} · 상공 ${e.aerialClearanceConfirmed ? "확인" : "미확인"}` : e.kind === "other" ? "장비별 작업 검토 별도 필요" : e.kind === "truck" ? `윙 추가 폭 ${e.wingSide ?? "?"}m · 추가 높이 ${e.wingRise ?? "?"}m · 리프트 ${e.tailLift ?? "?"}m` : `적재물 ${e.loadWidth ?? "?"} × ${e.loadLength ?? "?"} × ${e.loadHeight ?? "?"}m / ${e.loadMass ?? "?"}kg · 운반 높이 ${e.carryHeight ?? "?"}m · 자중 ${e.mass ?? "?"}kg · 정격 ${e.ratedCapacity ?? "?"}kg (능력 판정 아님)`}</small></td><td>${esc(e.proof.source || "미기록")}<br/>${esc(e.proof.date || "미확인")}</td></tr>`).join("")}</table><h2>공간 자료 출처</h2><table><tr><th>대상</th><th>출처·확인일</th></tr>${[p.site, ...p.routes, ...p.routes.flatMap((r) => r.sections.map((s, i) => ({ ...s, name: `${r.name} 구간 ${i + 1}` }))), ...p.zones, ...p.obstacles].map((item) => `<tr><td>${esc("name" in item ? item.name : "작업 동·반입구")}</td><td>${esc(item.proof.source || "미기록")} · ${esc(item.proof.date || "미확인")} · ${item.proof.confirmed ? "확인함" : "검토 대기"}</td></tr>`).join("")}</table><h2>별도 확인</h2><p>바닥 구조·장비 전도 안정성·사다리차 지지력·실제 인양능력·유도자 배치·운영시간·통행 허가를 작업 전 확인하세요. E/V 탑승은 자동 판정에서 제외합니다. 계산은 입력한 강체 외형·평면 노면·원호 조향 모델에 한정하며 현장 실측을 대체하지 않습니다.</p></html>`;
 }

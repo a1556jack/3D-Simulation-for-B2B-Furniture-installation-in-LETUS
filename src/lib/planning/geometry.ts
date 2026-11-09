@@ -48,9 +48,10 @@ export function bodyExtents(e: Equipment) {
   return {
     front:
       (e.frontOverhang ?? 0) +
-      (e.kind === "truck" ? (e.wheelbase ?? 0) : extension),
+      (e.steering === "front" ? (e.wheelbase ?? 0) : 0) +
+      extension,
     rear:
-      (e.rearOverhang ?? 0) + (e.kind === "forklift" ? (e.wheelbase ?? 0) : 0),
+      (e.rearOverhang ?? 0) + (e.steering === "rear" ? (e.wheelbase ?? 0) : 0),
     width: Math.max(
       e.width ?? 0,
       e.kind === "forklift" ? (e.loadWidth ?? 0) : 0,
@@ -86,7 +87,12 @@ export function unloadingRectangle(
   margin: number,
 ): Point[] {
   const b = bodyExtents(e),
-    extra = (mode === "side" ? e.wingSide : e.tailLift) ?? 0,
+    extra =
+      (mode === "side"
+        ? e.vehicleType === "wing"
+          ? e.wingSide
+          : 0
+        : e.tailLift) ?? 0,
     extension = extra + aisle;
   const dx = (b.front - b.rear - (mode === "rear" ? extension : 0)) / 2,
     dy = mode === "side" ? extension / 2 : 0,

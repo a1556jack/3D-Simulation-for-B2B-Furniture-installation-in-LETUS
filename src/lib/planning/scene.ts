@@ -15,13 +15,14 @@ import {
   piecePose,
   unloadingRectangle,
 } from "./geometry";
+import { outriggerRectangle } from "./ladder";
 const colors = { pass: "#23766b", fail: "#d75135", unknown: "#c29135" };
 export function planningScene(
   p: DeliveryPlan,
   result: PlanResult,
   zoneId: string,
   progress: number,
-  moving: "truck" | "forklift",
+  moving: "truck" | "handling",
 ): FeatureCollection {
   const features: Feature<Geometry>[] = [],
     world = (q: Point) => toWorld(q, p.origin);
@@ -41,7 +42,7 @@ export function planningScene(
       },
     });
   for (const r of p.routes) {
-    const e = r.kind === "truck" ? p.trucks[0] : p.forklift,
+    const e = r.kind === "truck" ? p.trucks[0] : p.handling,
       m = routeMotion(r, e),
       points = m.pieces.length
         ? m.pieces.flatMap((s) =>
@@ -83,7 +84,7 @@ export function planningScene(
   if (z) {
     const truck = p.trucks[0],
       tr = p.routes.find((r) => r.id === z.truckRouteId),
-      fr = p.routes.find((r) => r.id === z.forkliftRouteId);
+      fr = p.routes.find((r) => r.id === z.handlingRouteId);
     if (tr && truck.length && truck.width) {
       const m = routeMotion(tr, truck),
         pose = poseAt(m, moving === "truck" ? progress : 1),
@@ -94,27 +95,45 @@ export function planningScene(
         "#d99c46",
         bodyExtents(truck).height,
       );
-      if (p.forklift.workingAisle !== null)
+      if (p.handling.workingAisle !== null)
         polygon(
           unloadingRectangle(
             truck,
             stop,
             z.mode,
-            p.forklift.workingAisle,
+            p.handling.workingAisle,
             p.margins.side ?? 0,
           ),
           "envelope",
           "#daa052",
         );
     }
-    if (fr && p.forklift.length && p.forklift.width) {
-      const m = routeMotion(fr, p.forklift),
-        pose = poseAt(m, moving === "forklift" ? progress : 0);
+    if (fr && p.handling.length && p.handling.width) {
+      const m = routeMotion(fr, p.handling),
+        pose = poseAt(
+          m,
+          moving === "handling"
+            ? progress
+            : p.handling.kind === "forklift"
+              ? 0
+              : 1,
+        );
+      if (
+        p.handling.kind === "ladder" &&
+        p.handling.outriggerWidth &&
+        p.handling.outriggerLength &&
+        p.handling.outriggerOffset !== null
+      )
+        polygon(
+          outriggerRectangle(p.handling, poseAt(m, 1), p.margins.side ?? 0),
+          "envelope",
+          "#a06fc0",
+        );
       polygon(
-        bodyRectangle(p.forklift, pose, 0),
+        bodyRectangle(p.handling, pose, 0),
         "volume",
         "#355f8b",
-        bodyExtents(p.forklift).height,
+        bodyExtents(p.handling).height,
       );
     }
   }

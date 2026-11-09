@@ -1,5 +1,6 @@
 import {
   aggregate,
+  HANDLING_LABELS,
   proofReady,
   type Check,
   type DeliveryPlan,
@@ -23,6 +24,7 @@ import {
   insideRectangle,
   intersects,
 } from "./geometry";
+import { ladderChecks } from "./ladder";
 const positive = (n: Num): n is number =>
   n !== null && Number.isFinite(n) && n > 0;
 function compare(
@@ -47,7 +49,7 @@ function geometryReady(e: Equipment) {
     e.rearOverhang !== null &&
     Math.abs(e.length! - e.wheelbase! - e.frontOverhang - e.rearOverhang) <
       0.05 &&
-    (e.kind === "truck" ||
+    (e.kind !== "forklift" ||
       [
         e.forkLength,
         e.loadLength,
@@ -161,13 +163,14 @@ export function evaluateRoute(
           : body.height * Math.cos(slope) +
             (body.front + body.rear) * Math.abs(Math.sin(slope));
     const widthComplete =
-      positive(e.width) && (e.kind === "truck" || e.loadWidth !== null);
+      positive(e.width) && (e.kind !== "forklift" || e.loadWidth !== null);
     const lengthComplete =
       [e.wheelbase, e.frontOverhang, e.rearOverhang].every((n) => n !== null) &&
-      (e.kind === "truck" || (e.forkLength !== null && e.loadLength !== null));
+      (e.kind !== "forklift" ||
+        (e.forkLength !== null && e.loadLength !== null));
     const heightComplete =
       positive(e.height) &&
-      (e.kind === "truck" ||
+      (e.kind !== "forklift" ||
         (e.carryHeight !== null && e.loadHeight !== null)) &&
       (slope === 0 || lengthComplete);
     const widthStatus = compare(
@@ -214,7 +217,7 @@ export function evaluateRoute(
         positive(e.wheelbase) &&
         e.frontOverhang !== null &&
         e.rearOverhang !== null &&
-        (e.kind === "truck" ||
+        (e.kind !== "forklift" ||
           (e.carryHeight !== null &&
             e.forkLength !== null &&
             e.loadLength !== null))
@@ -373,12 +376,41 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
     ready =
       proofReady(z.proof) &&
       plan.trucks.every((e) => proofReady(e.proof)) &&
-      proofReady(plan.forklift.proof);
-  const aisle = plan.forklift.workingAisle,
-    ext = bodyExtents(plan.forklift),
+      proofReady(plan.handling.proof);
+  if (plan.handling.kind === "ladder") checks.push(...ladderChecks(plan, z));
+  if (plan.handling.kind === "other")
+    checks.push({
+      code: "other-operation",
+      label: "기타 장비 작업 조건",
+      status: "unknown",
+      detail: "이 장비의 설치·작동 범위는 별도 검토가 필요합니다.",
+    });
+  if (z.mode === "side")
+    for (const e of plan.trucks.filter((e) => e.vehicleType !== "wing"))
+      checks.push({
+        code: "side-access",
+        label: `${e.name} 측면 하역`,
+        equipmentId: e.id,
+        status:
+          !proofReady(e.proof) || e.sideAccess === null
+            ? "unknown"
+            : e.sideAccess
+              ? "pass"
+              : "fail",
+        detail:
+          "탑차·카고는 실제 측면 개방 및 하역 가능 여부 확인이 필요합니다.",
+      });
+  const aisle = plan.handling.workingAisle,
+    ext = bodyExtents(plan.handling),
     values = plan.trucks.map((e) =>
       z.mode === "side"
-        ? [e.width, e.wingSide, e.length, e.height, e.wingRise]
+        ? [
+            e.width,
+            e.vehicleType === "wing" ? e.wingSide : 0,
+            e.length,
+            e.height,
+            e.vehicleType === "wing" ? e.wingRise : 0,
+          ]
         : [e.width, e.tailLift, e.length, e.height, 0],
     );
   const complete =
@@ -434,7 +466,7 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
   }
   checks.push({
     code: "unloading-space",
-    label: "윙·지게차 하역 작업 공간",
+    label: "차량·반입 장비 하역 작업 공간",
     status:
       !ready || !complete || !positive(z.width) || !positive(z.length)
         ? "unknown"
@@ -446,19 +478,25 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
   });
   checks.push({
     code: "unloading-height",
-    label: "윙 개방·하역 상부 공간",
-    status: compare(z.height, requiredHeight, 0, ready),
-    detail: `공간 ${z.height ?? "?"}m / 윙·마스트·적재물 포함 ${requiredHeight?.toFixed(2) ?? "?"}m`,
+    label: "특장 개방·하역 상부 공간",
+    status:
+      z.openSky && ready && positive(requiredHeight)
+        ? "pass"
+        : compare(z.height, requiredHeight, 0, ready),
+    detail: `공간 ${z.openSky ? "개방 상공" : `${z.height ?? "?"}m`} / 장비 작동 외형 ${requiredHeight?.toFixed(2) ?? "?"}m`,
     point: z.center,
   });
   const truckRoute = plan.routes.find(
       (r) => r.id === z.truckRouteId && r.kind === "truck",
     ),
     forkRoute = plan.routes.find(
-      (r) => r.id === z.forkliftRouteId && r.kind === "forklift",
+      (r) => r.id === z.handlingRouteId && r.kind === "handling",
     );
   const stoppingSection = truckRoute?.sections.at(-1),
-    startingSection = forkRoute?.sections[0];
+    startingSection =
+      plan.handling.kind === "forklift"
+        ? forkRoute?.sections[0]
+        : forkRoute?.sections.at(-1);
   checks.push({
     code: "loading-level",
     label: "하차 지점 노면",
@@ -470,7 +508,7 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
         ? "pass"
         : "unknown",
     detail:
-      "하역 영역은 수평 노면 모델입니다. 차량 종점과 지게차 시작 구간의 경사 0% 확인이 필요합니다.",
+      "하역 영역은 수평 노면 모델입니다. 차량 종점과 장비 작업 지점 구간의 경사 0% 확인이 필요합니다.",
     point: z.center,
   });
   if (plan.concurrentTrucks > 1)
@@ -517,50 +555,50 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
             ? "pass"
             : "fail",
         detail:
-          "실제 경로 종점의 차체 방향에서 윙/리프트·지게차 작업 여유가 하차 영역 안에 들어가야 합니다.",
+          "실제 경로 종점의 차체 방향에서 특장/리프트·장비 작업 여유가 하차 영역 안에 들어가야 합니다.",
         point: [pose.x, pose.y],
       });
       if (forkRoute) {
-        const fMotion = routeMotion(forkRoute, plan.forklift),
+        const fMotion = routeMotion(forkRoute, plan.handling),
           fReady =
             valid &&
-            geometryReady(plan.forklift) &&
+            geometryReady(plan.handling) &&
             proofReady(forkRoute.proof) &&
             fMotion.pieces.length > 0 &&
             !fMotion.issues.length;
         const hit = fReady
           ? sweptHit(
               fMotion,
-              plan.forklift,
+              plan.handling,
               bodyRectangle(e, pose, 0),
               side ?? 0,
             )
           : "unknown";
         checks.push({
           code: "parked-truck",
-          label: `지게차 ↔ 정차 ${e.name}`,
+          label: `${HANDLING_LABELS[plan.handling.kind as keyof typeof HANDLING_LABELS]} ↔ 정차 ${e.name}`,
           equipmentId: e.id,
           routeId: forkRoute.id,
           status: hit,
           detail:
             hit === "pass"
-              ? "지정 지게차 동선과 정차 차체가 분리됩니다."
+              ? "지정 장비 동선과 정차 차체가 분리됩니다."
               : hit === "fail"
-                ? "지게차 이동 외형이 정차 차량과 겹칩니다."
-                : "실제 차체·정차 방향·지게차 경로 추가 확인 필요",
+                ? "장비 이동 외형이 정차 차량과 겹칩니다."
+                : "실제 차체·정차 방향·장비 경로 추가 확인 필요",
           point: [pose.x, pose.y],
         });
       }
     }
   for (const [id, kind, end] of [
     [z.truckRouteId, "truck", true],
-    [z.forkliftRouteId, "forklift", false],
+    [z.handlingRouteId, "handling", plan.handling.kind !== "forklift"],
   ] as const) {
     const r = plan.routes.find((r) => r.id === id && r.kind === kind),
       p = end ? r?.points.at(-1) : r?.points[0];
     checks.push({
       code: "connection",
-      label: kind === "truck" ? "차량 종점 연결" : "지게차 시작점 연결",
+      label: kind === "truck" ? "차량 종점 연결" : "장비 작업 지점 연결",
       status:
         !p ||
         !positive(z.width) ||
@@ -579,7 +617,7 @@ export function evaluateZone(plan: DeliveryPlan, z: Zone): ZoneResult {
             ? "pass"
             : "fail",
       detail:
-        "차량 경로 종점과 지게차 시작점이 지정 하차 영역 안에 있어야 합니다.",
+        "차량 종점과 장비 작업 지점(지게차 시작점 / 사다리차 종점)이 지정 하차 영역 안에 있어야 합니다.",
       point: p ?? z.center,
     });
   }
@@ -643,13 +681,13 @@ export function evaluatePlan(plan: DeliveryPlan): PlanResult {
     let d = 0;
     for (const [kind, id, equipments] of [
       ["truck", z.truckRouteId, plan.trucks],
-      ["forklift", z.forkliftRouteId, [plan.forklift]],
+      ["handling", z.handlingRouteId, [plan.handling]],
     ] as const) {
       const r = plan.routes.find((r) => r.id === id && r.kind === kind);
       if (!r) {
         checks.push({
           code: "route",
-          label: kind === "truck" ? "차량 접근로" : "지게차 반입로",
+          label: kind === "truck" ? "차량 접근로" : "장비 반입로",
           status: "unknown",
           detail: "연결할 경로 후보를 지정하세요.",
         });
@@ -671,7 +709,7 @@ export function evaluatePlan(plan: DeliveryPlan): PlanResult {
       distance: d,
       reason:
         status === "pass"
-          ? `동시 ${plan.concurrentTrucks}대 작업 공간 확보 · 차량/지게차 총 동선 ${d.toFixed(0)}m`
+          ? `동시 ${plan.concurrentTrucks}대 작업 공간 확보 · 차량/장비 총 동선 ${d.toFixed(0)}m`
           : (checks.find((c) => c.status === status)?.detail ??
             "추가 조건 확인 필요"),
     };

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { NumberField as N, ProofFields, downloadText } from "./planning-fields";
 import {
   createRoute,
+  HANDLING_LABELS,
   createSection,
   createZone,
   proof,
@@ -19,6 +20,7 @@ import {
   workOrderHtml,
   type WorkOrder,
 } from "@/lib/planning/persistence";
+import EquipmentEditor from "./equipment-editor";
 export type Capture = {
   kind: "route" | "zone" | "obstacle";
   id: string;
@@ -33,8 +35,8 @@ type Props = {
   onSelect: (id: string) => void;
   progress: number;
   onProgress: (n: number) => void;
-  moving: "truck" | "forklift";
-  onMoving: (v: "truck" | "forklift") => void;
+  moving: "truck" | "handling";
+  onMoving: (v: "truck" | "handling") => void;
   onFocus: (p: Point) => void;
   order: WorkOrder | null;
   onIssue: () => void;
@@ -42,16 +44,6 @@ type Props = {
   onExitExample: () => void;
   recovery: string | null;
 };
-const equipmentFields: [keyof Equipment, string][] = [
-  ["length", "차체 전장 (m)"],
-  ["width", "차체 폭 (m)"],
-  ["height", "차량 높이 (m)"],
-  ["wheelbase", "축간거리 (m)"],
-  ["frontOverhang", "앞 오버행 (m)"],
-  ["rearOverhang", "뒤 오버행 (m)"],
-  ["minRadius", "비조향축 최소 회전반경 (m)"],
-  ["clearance", "최저 지상고 (m)"],
-];
 export default function PlanningPanel(props: Props) {
   const {
     plan: p,
@@ -64,7 +56,6 @@ export default function PlanningPanel(props: Props) {
     order,
   } = props;
   const [tab, setTab] = useState("결과"),
-    [equipmentId, setEquipmentId] = useState("truck-1"),
     [routeId, setRouteId] = useState(""),
     [zoneId, setZoneId] = useState(""),
     [message, setMessage] = useState(""),
@@ -90,23 +81,8 @@ export default function PlanningPanel(props: Props) {
     );
     return () => clearInterval(id);
   }, [playing, props.progress, props.onProgress]);
-  const equipment =
-      [...p.trucks, p.forklift].find((e) => e.id === equipmentId) ??
-      p.trucks[0],
-    route = p.routes.find((r) => r.id === routeId) ?? p.routes[0],
+  const route = p.routes.find((r) => r.id === routeId) ?? p.routes[0],
     zone = p.zones.find((z) => z.id === zoneId) ?? p.zones[0];
-  function updateEquipment(patch: Partial<Equipment>) {
-    const next = {
-      ...equipment,
-      ...patch,
-      proof: patch.proof ?? { ...equipment.proof, confirmed: false },
-    };
-    change({
-      ...p,
-      trucks: p.trucks.map((e) => (e.id === next.id ? next : e)),
-      forklift: p.forklift.id === next.id ? next : p.forklift,
-    });
-  }
   function updateRoute(patch: Partial<NonNullable<typeof route>>) {
     if (!route) return;
     change({
@@ -154,7 +130,9 @@ export default function PlanningPanel(props: Props) {
       next.site.proof.confirmed = false;
       for (const x of [
         ...next.trucks,
-        next.forklift,
+        ...next.inactiveTrucks,
+        ...next.handlingProfiles,
+        next.handling,
         ...next.routes,
         ...next.zones,
         ...next.obstacles,
@@ -230,14 +208,14 @@ export default function PlanningPanel(props: Props) {
           <section>
             <h2>하차 공간·반입로 비교</h2>
             <p className="muted">
-              지정한 후보별로 차량 6대와 지게차 동선을 함께 검사합니다. 추천은
-              입력한 공간·운영조건 안에서의 비교입니다.
+              지정한 후보별로 차량 {p.trucks.length}대와 선택한 반입 장비 동선을
+              함께 검사합니다. 추천은 입력한 공간·운영조건 안에서의 비교입니다.
             </p>
             {!result.candidates.length && (
               <div className="empty-plan">
                 <strong>반입 후보를 먼저 지정하세요</strong>
                 <p>
-                  ① 실제 장비 제원 → ② 차량·지게차 경로 → ③ 연결할 하차 공간을
+                  ① 실제 장비 제원 → ② 차량·장비 경로 → ③ 연결할 하차 공간을
                   입력하세요.
                 </p>
                 <button
@@ -351,7 +329,7 @@ export default function PlanningPanel(props: Props) {
             <section>
               <h2>3D 이동 확인</h2>
               <p className="muted">
-                주황: 차량 · 파랑: 지게차 · 금색 영역: 하역 공간. 비조향축
+                주황: 차량 · 파랑: 반입 장비 · 금색 영역: 하역 공간. 비조향축
                 경로를 따라 강체 외형을 표시합니다.
               </p>
               <div className="save-row">
@@ -367,13 +345,18 @@ export default function PlanningPanel(props: Props) {
                 </button>
                 <button
                   className={
-                    props.moving === "forklift"
+                    props.moving === "handling"
                       ? "primary-button"
                       : "outline-button"
                   }
-                  onClick={() => props.onMoving("forklift")}
+                  onClick={() => props.onMoving("handling")}
                 >
-                  지게차 이동
+                  {
+                    HANDLING_LABELS[
+                      p.handling.kind as keyof typeof HANDLING_LABELS
+                    ]
+                  }{" "}
+                  이동
                 </button>
               </div>
               <input
@@ -460,125 +443,12 @@ export default function PlanningPanel(props: Props) {
           </section>
         </>
       )}
-      {tab === "장비" && (
-        <section>
-          <h2>실제 장비 제원</h2>
-          <label className="field">
-            적용 장비
-            <select
-              value={equipment.id}
-              onChange={(e) => setEquipmentId(e.target.value)}
-            >
-              {[...p.trucks, p.forklift].map((e) => (
-                <option value={e.id} key={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            장비 모델·식별명
-            <input
-              value={equipment.name}
-              maxLength={100}
-              onChange={(e) => updateEquipment({ name: e.target.value })}
-            />
-          </label>
-          <p className="muted">
-            차량은 전륜 조향·후축 기준, 지게차는 후륜 조향·전축 기준입니다. 최소
-            회전반경은 해당 비조향축 중심 기준 제원을 사용하세요.
-          </p>
-          <div className="plan-fields">
-            {equipmentFields.map(([key, label]) => (
-              <N
-                key={key}
-                label={
-                  equipment.kind === "forklift" && key === "height"
-                    ? "하강 마스트 높이 (m)"
-                    : label
-                }
-                value={equipment[key] as Num}
-                max={100}
-                onChange={(value) => updateEquipment({ [key]: value })}
-              />
-            ))}
-          </div>
-          <h3>
-            {equipment.kind === "truck"
-              ? "특장 작동 외형"
-              : "최대 적재물·작업 공간"}
-          </h3>
-          <div className="plan-fields">
-            {(equipment.kind === "truck"
-              ? [
-                  ["wingSide", "좌측 윙 수평 추가 폭 (m)"],
-                  ["wingRise", "윙 개방 추가 높이 (m)"],
-                  ["tailLift", "뒤 리프트 전개 길이 (m)"],
-                ]
-              : [
-                  ["forkLength", "포크 돌출 길이 (m)"],
-                  ["loadLength", "적재물 앞 돌출 길이 (m)"],
-                  ["loadWidth", "적재물 폭 (m)"],
-                  ["loadHeight", "적재물 높이 (m)"],
-                  ["loadMass", "적재물 최대 무게 (kg)"],
-                  ["carryHeight", "운반 높이 (m)"],
-                  ["workingAisle", "적재 상태 작업 통로 폭 (m)"],
-                  ["mass", "장비 자중 (kg)"],
-                  ["ratedCapacity", "정격인양하중 (kg)"],
-                ]
-            ).map(([key, label]) => (
-              <N
-                key={key}
-                label={label}
-                value={equipment[key as keyof Equipment] as Num}
-                max={
-                  key === "mass" ||
-                  key === "ratedCapacity" ||
-                  key === "loadMass"
-                    ? 1e6
-                    : 100
-                }
-                onChange={(value) => updateEquipment({ [key]: value })}
-              />
-            ))}
-          </div>
-          <ProofFields
-            value={equipment.proof}
-            label={equipment.name}
-            onChange={(proof) => updateEquipment({ proof })}
-          />
-          {equipment.kind === "truck" && (
-            <button
-              className="outline-button full"
-              onClick={() => {
-                change({
-                  ...p,
-                  trucks: p.trucks.map((e) =>
-                    e.id === equipment.id
-                      ? e
-                      : {
-                          ...structuredClone(equipment),
-                          id: e.id,
-                          name: e.name,
-                          proof: { ...equipment.proof, confirmed: false },
-                        },
-                  ),
-                });
-                setMessage(
-                  "제원을 나머지 5대로 복사했습니다. 각 차량의 실제 제원을 확인하세요.",
-                );
-              }}
-            >
-              동일 제원을 나머지 5대에 복사
-            </button>
-          )}
-        </section>
-      )}
+      {tab === "장비" && <EquipmentEditor plan={p} onChange={change} />}
       {tab === "경로" && (
         <section>
           <h2>경로 후보와 구간 조건</h2>
           <div className="save-row">
-            {(["truck", "forklift"] as const).map((kind) => (
+            {(["truck", "handling"] as const).map((kind) => (
               <button
                 className="outline-button"
                 disabled={p.routes.length >= 8}
@@ -590,7 +460,9 @@ export default function PlanningPanel(props: Props) {
                   onCapture({ kind: "route", id: r.id });
                 }}
               >
-                {kind === "truck" ? "차량 경로 추가" : "지게차 경로 추가"}
+                {kind === "truck"
+                  ? "차량 경로 추가"
+                  : `${HANDLING_LABELS[p.handling.kind as keyof typeof HANDLING_LABELS]} 경로 추가`}
               </button>
             ))}
           </div>
@@ -865,22 +737,26 @@ export default function PlanningPanel(props: Props) {
                     updateZone({ mode: e.target.value as "side" | "rear" })
                   }
                 >
-                  <option value="side">좌측 윙 개방 · 측면 하역</option>
+                  <option value="side">
+                    좌측 측면 하역 (윙 차량은 윙 개방)
+                  </option>
                   <option value="rear">뒤 리프트 전개 · 후면 하역</option>
                 </select>
               </label>
-              {(["truck", "forklift"] as const).map((kind) => (
+              {(["truck", "handling"] as const).map((kind) => (
                 <label className="field" key={kind}>
-                  {kind === "truck" ? "차량 접근 경로" : "지게차 반입 경로"}
+                  {kind === "truck"
+                    ? "차량 접근 경로"
+                    : `${HANDLING_LABELS[p.handling.kind as keyof typeof HANDLING_LABELS]} 반입 경로`}
                   <select
                     value={
                       kind === "truck"
                         ? zone.truckRouteId
-                        : zone.forkliftRouteId
+                        : zone.handlingRouteId
                     }
                     onChange={(e) =>
                       updateZone({
-                        [kind === "truck" ? "truckRouteId" : "forkliftRouteId"]:
+                        [kind === "truck" ? "truckRouteId" : "handlingRouteId"]:
                           e.target.value,
                       })
                     }
@@ -905,6 +781,14 @@ export default function PlanningPanel(props: Props) {
                   }
                 />{" "}
                 사용 허용·운영조건·주변 장애물을 확인함
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={zone.openSky}
+                  onChange={(e) => updateZone({ openSky: e.target.checked })}
+                />
+                하차·설치 영역 상부가 개방된 야외임을 확인함
               </label>
               <ProofFields
                 label={zone.name}
@@ -1077,18 +961,20 @@ export default function PlanningPanel(props: Props) {
             />
           </div>
           <label className="field">
-            동시 하역 차량 수 (전체 6대)
+            동시 하역 차량 수 (전체 {p.trucks.length}대)
             <select
               value={p.concurrentTrucks}
               onChange={(e) =>
                 change({ ...p, concurrentTrucks: Number(e.target.value) })
               }
             >
-              {[1, 2, 3, 4, 5, 6].map((n) => (
-                <option key={n} value={n}>
-                  {n === 1 ? "1대씩 순차 반입" : `${n}대 동시 정차`}
-                </option>
-              ))}
+              {Array.from({ length: p.trucks.length }, (_, i) => i + 1).map(
+                (n) => (
+                  <option key={n} value={n}>
+                    {n === 1 ? "1대씩 순차 반입" : `${n}대 동시 정차`}
+                  </option>
+                ),
+              )}
             </select>
           </label>
           <p className="muted">
