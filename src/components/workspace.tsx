@@ -1,9 +1,11 @@
 'use client';
+import InspectionPanel from './inspection-panel';
+import {emptyInspection,parseInspection,PILOT_SITE_ID,type Inspection} from '@/lib/observations';
 import {portableData} from '@/lib/runtime';
 import {useEffect,useMemo,useState} from 'react';
 import dynamic from 'next/dynamic';
 import type {SelectedBuilding,Target} from './map-canvas';
-import {distanceMetres,evaluateClearance,parseCoordinates,searchPlaces,type SearchPlace} from '@/lib/domain';
+import {distanceMetres,parseCoordinates,searchPlaces,type SearchPlace} from '@/lib/domain';
 const MapCanvas=dynamic(()=>import('./map-canvas'),{ssr:false,loading:()=> <div className="map-loading">실제 지역 지도를 준비하고 있습니다…</div>});
 const base=process.env.NEXT_PUBLIC_BASE_PATH||'';
 const pilot:Target={center:[127.299745,37.228360],label:'용인 양지 · 남평로 주변',zoom:15.8,nonce:0};
@@ -13,18 +15,36 @@ export default function Workspace(){
  const [target,setTarget]=useState<Target>(pilot),[is3D,set3D]=useState(true),[assumed,setAssumed]=useState(true),[status,setStatus]=useState('지역 지도 불러오는 중'),[archive,setArchive]=useState('수도권'),[count,setCount]=useState(0);
  const [query,setQuery]=useState(''),[places,setPlaces]=useState<SearchPlace[]>([]),[searchStatus,setSearchStatus]=useState('검색 자료 준비 중'),[results,setResults]=useState<ReturnType<typeof searchPlaces>|null>(null);
  const [selected,setSelected]=useState<SelectedBuilding|null>(null),[drawing,setDrawing]=useState(false),[points,setPoints]=useState<[number,number][]>([]),[tab,setTab]=useState<'site'|'conditions'|'sources'>('site');
+ const [recovery,setRecovery]=useState<{raw:string;reason:string;backupKey?:string}|null>(null);
+ const [inspection,setInspection]=useState<Inspection>(emptyInspection);
  const [fields,setFields]=useState(emptyFields),[saveMessage,setSaveMessage]=useState('이 기기에 저장할 수 있습니다');
  useEffect(()=>{let active=true;const embedded=portableData();(embedded?Promise.resolve(new Response(JSON.stringify(embedded.places))):fetch(`${base}/data/places.json`)).then(r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{if(active){setPlaces(data);setSearchStatus('검색 준비 완료');}}).catch(()=>{if(active)setSearchStatus('검색 자료 로드 실패 · 새로고침하세요');});
- try{const saved=JSON.parse(localStorage.getItem('letus-pilot-notes-v1')||'null');if(saved?.fields&&Object.keys(emptyFields).every(k=>typeof saved.fields[k]==='string'))setFields(saved.fields);if(Array.isArray(saved?.points)&&saved.points.every((p:unknown)=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))setPoints(saved.points);}catch{/* Corrupt local records must not prevent opening the map. */}return()=>{active=false;};},[]);
+ try{
+  const raw=localStorage.getItem('letus-pilot-notes-v1');
+  if(raw){try{
+   const saved=JSON.parse(raw);
+   if(!saved||typeof saved!=='object'||Array.isArray(saved)||(!saved.fields&&!saved.inspection&&!Array.isArray(saved.points)))throw Error('저장 형식을 확인할 수 없습니다.');
+   const restored=saved.inspection?parseInspection(JSON.stringify(saved.inspection)):emptyInspection();
+   if(restored.siteId!==PILOT_SITE_ID)throw Error('다른 현장의 기록이므로 현재 현장에 적용하지 않았습니다.');
+   if(saved.fields&&!Object.keys(emptyFields).every(k=>typeof saved.fields[k]==='string'))throw Error('이전 입력값의 형식이 잘못되었습니다.');
+   if(saved.points&&(!Array.isArray(saved.points)||!saved.points.every((p:unknown)=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite))))throw Error('동선 기록의 형식이 잘못되었습니다.');
+   setInspection(restored);if(saved.fields)setFields(saved.fields);if(saved.points)setPoints(saved.points);
+   if(typeof saved.recoveryKey==='string'&&/^letus-pilot-recovery-[0-9a-f-]{36}$/.test(saved.recoveryKey)){const backup=localStorage.getItem(saved.recoveryKey);if(backup)setRecovery({raw:backup,reason:'이전 기록의 복구 사본을 보관하고 있습니다.',backupKey:saved.recoveryKey});}
+  }catch(e){setRecovery({raw,reason:(e as Error).message});setSaveMessage('기존 확인 기록을 적용하지 못했습니다. 원본을 보호하고 있습니다.');}}
+ }catch{setSaveMessage('브라우저 저장 공간을 읽지 못했습니다. 기록 파일을 사용하세요.');}
+ return()=>{active=false;};},[]);
  const total=useMemo(()=>points.slice(1).reduce((s,p,i)=>s+distanceMetres(points[i],p),0),[points]);
  function go(center:[number,number],label:string,zoom=15.8){setSelected(null);setTarget({center,label,zoom,nonce:Date.now()});}
  function search(){const coords=parseCoordinates(query);if(coords){go(coords,'입력 좌표 · 주소 미확인');setResults([]);return;}setResults(searchPlaces(query,places));}
- function save(){try{localStorage.setItem('letus-pilot-notes-v1',JSON.stringify({fields,points,savedAt:new Date().toISOString()}));setSaveMessage('이 기기에 저장했습니다');}catch{setSaveMessage('저장 공간을 사용할 수 없습니다 · 기록 내려받기를 이용하세요');}}
- function exportRecord(){const record={site:'경기도 용인시 처인구 양지읍 남평로 111-73 · 9층',exactBuildingConfirmed:false,equipment:{trucks:{class:'11톤 윙바디',count:6,model:null},forklift:{ratedCapacityTonnes:3,model:null}},observations:fields,routeSketch:points,routeStatus:'현장 실측 전 · 통과 판정 아님',source:'OpenStreetMap / Protomaps · PLAYX1/playx-raven-maps',createdAt:new Date().toISOString()};const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='LETUS-용인-현장기록.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
- function numeric(value:string){return value.trim()===''?null:Number(value);}
- const verdict=evaluateClearance(numeric(fields.clearHeight),numeric(fields.vehicleHeight),numeric(fields.margin));
- const verdictText={unknown:'정보 부족',fail:'조건 초과',pass:'입력 조건상 높이 충족'}[verdict];
- const field=(key:keyof typeof fields,label:string,placeholder:string)=> <label className="field" key={key}>{label}<input type="number" min="0" step="0.01" placeholder={placeholder} value={fields[key]} onChange={e=>setFields({...fields,[key]:e.target.value})}/></label>;
+ function save(){try{
+  let recoveryKey=recovery?.backupKey;
+  if(recovery&&!recoveryKey){recoveryKey=`letus-pilot-recovery-${crypto.randomUUID()}`;localStorage.setItem(recoveryKey,recovery.raw);setRecovery({...recovery,backupKey:recoveryKey});}
+  // The backup write must succeed before replacing a damaged or mismatched record.
+  localStorage.setItem('letus-pilot-notes-v1',JSON.stringify({fields,points,inspection,savedAt:new Date().toISOString(),...(recoveryKey?{recoveryKey}:{})}));
+  setSaveMessage(recoveryKey?'기록을 저장했습니다. 이전 원본은 복구 사본으로 보존했습니다.':'이 기기에 저장했습니다');
+ }catch{setSaveMessage('저장하지 못했습니다. 기존 원본은 유지됩니다. 기록 내려받기를 이용하세요.');}}
+ function exportRecovery(){if(!recovery)return;const url=URL.createObjectURL(new Blob([recovery.raw],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='LETUS-복구원본.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+ function exportRecord(){const record={site:'경기도 용인시 처인구 양지읍 남평로 111-73 · 9층',exactBuildingConfirmed:false,equipment:{trucks:{class:'11톤 윙바디',count:6,model:null},forklift:{ratedCapacityTonnes:3,model:null}},legacyObservations:fields,inspection,routeSketch:points,routeStatus:'현장 실측 전 · 통과 판정 아님',mapSource:'OpenStreetMap / Protomaps · PLAYX1/playx-raven-maps',createdAt:new Date().toISOString()};const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='LETUS-용인-현장기록.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  return <div className="app-shell">
   <header className="app-header"><a className="brand" href={`${base}/`}><span className="brand-mark">L<span>↗</span></span><span>LETUS<small>FIELD PLANNER</small></span></a><div className="header-divider"/><div className="workspace-title">반입 현장 3D <span>사전 탐색</span></div><div className="header-actions"><span className="live-dot"/>실제 공개 지도<button className="small-button" onClick={()=>window.print()}>현장 요약 인쇄</button></div></header>
   <div className="main-layout">
@@ -37,17 +57,14 @@ export default function Workspace(){
      <section><div className="section-title"><h2>반입 장비</h2><span className="step-number">02</span></div><div className="equipment"><span className="equipment-icon">▰</span><div><strong>11톤 윙바디</strong><p>차량 모델·실제 외형 미확인</p></div><b>6<span>대</span></b></div><div className="equipment"><span className="equipment-icon">♧</span><div><strong>3톤 지게차</strong><p>정격인양하중 · 자중과 별도</p></div><b>3<span>t</span></b></div><p className="muted">톤급만으로 차량 크기나 지게차 통과 여부를 판단하지 않습니다.</p></section>
      <section><div className="section-title"><h2>반입 경로 스케치</h2><span className="step-number">03</span></div><p className="muted">지도 위를 순서대로 눌러 접근 동선을 기록하세요. 거리는 지도상 수평 거리입니다.</p><button className={drawing?'primary-button full':'outline-button full'} onClick={()=>setDrawing(!drawing)}>{drawing?'✓ 경로 그리기 마침':'＋ 지도에 경로 그리기'}</button>{points.length>0&&<div className="route-summary"><span>{points.length}개 지점 · 약 {Math.round(total)}m</span><button onClick={()=>setPoints(points.slice(0,-1))}>되돌리기</button><button onClick={()=>setPoints([])}>초기화</button></div>}<div className="notice compact">경로 간섭 검사: 정보 부족<br/><small>유효 폭·높이·경사·장비 제원 확인 필요</small></div></section>
     </>}
-    {tab==='conditions'&&<>
-     <section><h2>현장 실측 기록</h2><p className="muted">지도 건물 높이는 아래 값으로 자동 입력되지 않습니다. 실제 공간과 장비를 확인한 값만 기록하세요.</p><div className="fields">{field('clearHeight','구간 유효 높이 (m)','실측 필요')}{field('vehicleHeight','실제 차량 높이 (m)','모델 확인 필요')}{field('margin','관리자가 정한 높이 여유 (m)','미설정')}{field('rampWidth','램프 유효 폭 (m)','실측 필요')}{field('elevatorDoor','E/V 문 유효 폭 (m)','실측 필요')}</div><div className={`verdict ${verdict}`}><strong>{verdictText}</strong><small>입력한 높이 1개 항목만 비교합니다. 전체 경로 통과·하역·구조 안전 판정은 포함되지 않습니다.</small></div></section>
-     <section><h2>추가 확인 항목</h2><ul className="checklist"><li>윙 개방 및 지게차 회전 공간</li><li>램프 전환부·경사·상부 배관</li><li>E/V 내부 치수·정격하중·9층 운행</li><li>바닥 허용하중 및 관리사무소 이용조건</li></ul><label className="field">현장 메모<textarea value={fields.notes} onChange={e=>setFields({...fields,notes:e.target.value})} placeholder="확인한 위치, 출처, 확인일과 변경 사항" rows={4}/></label></section>
-    </>}
+    {tab==='conditions'&&<><InspectionPanel store={inspection} onChange={next=>{setInspection(next);setSaveMessage('변경 사항을 저장하세요');}} hasLegacy={Object.entries(fields).some(([k,v])=>k!=='notes'&&!!v)}/><section><label className="field">현장 메모<textarea maxLength={10000} value={fields.notes} onChange={e=>setFields({...fields,notes:e.target.value})} placeholder="작업 동·반입구·변경 사항" rows={4}/></label></section></>}
     {tab==='sources'&&<>
      <section><h2>실제 지도 데이터</h2><span className={status==='지도 연결됨'?'badge green':'badge amber'}>{status==='지도 연결됨'?'실제 지도 연결 · API 키 불필요':'지도 연결 확인 필요'}</span><p className="muted">OpenStreetMap의 도로·건물 윤곽을 Protomaps가 가공한 지역 자료입니다. 사진 기반 모델이나 실내 도면은 포함하지 않습니다.</p><dl className="source-details"><dt>제공 자료</dt><dd>수도권 74MB · 강원 23MB · 충청 45MB</dd><dt>확보일</dt><dd>2026.11.09 · 자료별 해시 검증</dd><dt>원자료 갱신일</dt><dd>개별 건물별 확인 불가</dd><dt>표시 정밀도</dt><dd>수도권 z14 · 강원/충청 z13의 일반화된 윤곽</dd></dl><p className="muted">수도권 북부·섬과 지도 미등록 건물 등 빈 구역이 있습니다. 모든 주소의 건물이나 세부 치수가 확보된 상태는 아닙니다.</p><a href={portableData()?.manifestUrl??`${base}/data/map-sources.json`} target="_blank" rel="noreferrer">원본 주소·검증 해시 보기 ↗</a></section>
      <section><h2>높이 표시 기준</h2><p className="muted">청록색: 지도에 높이 값이 있는 건물. 회색: 높이가 없어 시각화를 위해 6m로 표시한 건물. 지도 높이도 실측 검증되지 않았습니다.</p><p className="muted">램프, 주차장 유효 높이, E/V 정보: 연동 미완료. 현재 화면에서 통과 가능한 것으로 표시하지 않습니다.</p></section>
      <section><h2>출처 및 이용조건</h2><p><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap · ODbL ↗</a></p><p><a href="https://github.com/PLAYX1/playx-raven-maps/tree/a30620ace8a174a0d7474c4785f564f22cdac064" target="_blank" rel="noreferrer">배포 원본 · PLAYX1 ↗</a></p></section>
     </>}
     </div>
-    <footer className="sidebar-footer"><div className="save-row"><button className="primary-button" onClick={save}>기록 저장</button><button className="outline-button" onClick={exportRecord}>기록 내려받기</button></div><small role="status">{saveMessage}</small></footer>
+    <footer className="sidebar-footer">{recovery&&<div className="recovery-notice"><small>{recovery.reason}</small><button className="text-button" onClick={exportRecovery}>복구 원본 내려받기</button></div>}<div className="save-row"><button className="primary-button" onClick={save}>기록 저장</button><button className="outline-button" onClick={exportRecord}>기록 내려받기</button></div><small role="status">{saveMessage}</small></footer>
    </aside>
    <main className="map-workspace">
     <div className="map-topbar"><form className="search" onSubmit={e=>{e.preventDefault();search();}}><span aria-hidden="true">⌕</span><input aria-label="주소·도로·장소 검색" placeholder="도로명·장소 또는 경도,위도 검색" value={query} onChange={e=>setQuery(e.target.value)}/><button type="submit" disabled={!places.length}>검색</button></form><span className="search-status" data-testid="search-ready">{searchStatus}</span></div>
