@@ -5,12 +5,13 @@ import type {Map as MapType,GeoJSONSource} from 'maplibre-gl';
 import {portableData} from '@/lib/runtime';
 import {Protocol,PMTiles,FetchSource} from 'pmtiles';
 import {ARCHIVES,buildingHeight,chooseArchive,createMapStyle,type Archive} from '@/lib/map-style';
+import type {FeatureCollection} from 'geojson';
 import {heightInfo} from '@/lib/domain';
 const base=process.env.NEXT_PUBLIC_BASE_PATH||'';
 const protocol=new Protocol();maplibregl.addProtocol('pmtiles',protocol.tile);
 export type Target={center:[number,number];label:string;zoom?:number;nonce:number};
 export type SelectedBuilding={height:number|null;basis:'map'|'unknown';point:[number,number]};
-type Props={target:Target;is3D:boolean;assumed:boolean;drawing:boolean;points:[number,number][];onPoint:(p:[number,number])=>void;onBuilding:(b:SelectedBuilding)=>void;onStatus:(s:string)=>void;onStats:(n:number)=>void;onArchive:(s:string)=>void};
+type Props={scene?:FeatureCollection;target:Target;is3D:boolean;assumed:boolean;drawing:boolean;points:[number,number][];onPoint:(p:[number,number])=>void;onBuilding:(b:SelectedBuilding)=>void;onStatus:(s:string)=>void;onStats:(n:number)=>void;onArchive:(s:string)=>void};
 function routeData(points:[number,number][]){return {type:'FeatureCollection' as const,features:[...(points.length>1?[{type:'Feature' as const,properties:{},geometry:{type:'LineString' as const,coordinates:points}}]:[]),...points.map((p,i)=>({type:'Feature' as const,properties:{order:i+1},geometry:{type:'Point' as const,coordinates:p}}))]};}
 function updateRoute(map:MapType,points:[number,number][]){
  const source=map.getSource('route') as GeoJSONSource|undefined;
@@ -18,6 +19,16 @@ function updateRoute(map:MapType,points:[number,number][]){
  map.addSource('route',{type:'geojson',data:routeData(points)});
  map.addLayer({id:'route-line',type:'line',source:'route',filter:['==','$type','LineString'],paint:{'line-color':'#e78030','line-width':5,'line-dasharray':[2,1]}});
  map.addLayer({id:'route-points',type:'circle',source:'route',filter:['==','$type','Point'],paint:{'circle-radius':6,'circle-color':'#fff','circle-stroke-color':'#d9691e','circle-stroke-width':3}});
+}
+function updateScene(map:MapType,data?:FeatureCollection){
+ const scene=data??{type:'FeatureCollection' as const,features:[]};
+ const source=map.getSource('planning') as GeoJSONSource|undefined;if(source){source.setData(scene);return;}
+ map.addSource('planning',{type:'geojson',data:scene});
+ map.addLayer({id:'planning-areas',type:'fill',source:'planning',filter:['in',['get','kind'],['literal',['zone','envelope']]],paint:{'fill-color':['get','color'],'fill-opacity':0.18}});
+ map.addLayer({id:'planning-outlines',type:'line',source:'planning',filter:['in',['get','kind'],['literal',['zone','envelope']]],paint:{'line-color':['get','color'],'line-width':2}});
+ map.addLayer({id:'planning-routes',type:'line',source:'planning',filter:['==',['get','kind'],'route'],paint:{'line-color':['get','color'],'line-width':5}});
+ map.addLayer({id:'planning-volumes',type:'fill-extrusion',source:'planning',filter:['==',['get','kind'],'volume'],paint:{'fill-extrusion-color':['get','color'],'fill-extrusion-height':['get','height'],'fill-extrusion-base':['get','base'],'fill-extrusion-opacity':0.85}});
+ map.addLayer({id:'planning-hazards',type:'circle',source:'planning',filter:['==',['get','kind'],'hazard'],paint:{'circle-radius':8,'circle-color':['get','color'],'circle-stroke-color':'white','circle-stroke-width':2}});
 }
 export default function MapCanvas(props:Props){
  const container=useRef<HTMLDivElement>(null),mapRef=useRef<MapType|null>(null),latest=useRef(props),ready=useRef(false);
@@ -36,7 +47,7 @@ export default function MapCanvas(props:Props){
   const marker=new maplibregl.Marker({element:markerEl}).setLngLat(latest.current.target.center).addTo(map);
   // Keep marker at the requested vicinity, never at an inferred house number.
   const syncTarget=()=>{marker.setLngLat(latest.current.target.center);};
-  map.on('style.load',()=>{ready.current=true;map.setPaintProperty('buildings','fill-extrusion-height',buildingHeight(latest.current.assumed));updateRoute(map,latest.current.points);latest.current.onArchive(ARCHIVES[archive].label);});
+  map.on('style.load',()=>{ready.current=true;map.setPaintProperty('buildings','fill-extrusion-height',buildingHeight(latest.current.assumed));updateRoute(map,latest.current.points);updateScene(map,latest.current.scene);latest.current.onArchive(ARCHIVES[archive].label);});
   map.on('error',event=>{console.error('Map source error:',event.error.message);failed=true;latest.current.onStatus('지도 자료를 불러오지 못했습니다 · 새로고침해 다시 시도하세요');});
   map.on('idle',()=>{
    if(!ready.current||failed)return;
@@ -65,6 +76,7 @@ export default function MapCanvas(props:Props){
  useEffect(()=>{mapRef.current?.easeTo({pitch:props.is3D?55:0,bearing:props.is3D?-28:0,duration:500});},[props.is3D]);
  useEffect(()=>{if(ready.current)mapRef.current?.setPaintProperty('buildings','fill-extrusion-height',buildingHeight(props.assumed));},[props.assumed]);
  useEffect(()=>{if(ready.current&&mapRef.current)updateRoute(mapRef.current,props.points);},[props.points]);
+ useEffect(()=>{if(ready.current&&mapRef.current)updateScene(mapRef.current,props.scene);},[props.scene]);
  useEffect(()=>{if(mapRef.current)mapRef.current.getCanvas().style.cursor=props.drawing?'crosshair':'';},[props.drawing]);
  return <div className="map-canvas" ref={container} aria-label="실제 도로와 건물의 3D 지도"/>;
 }

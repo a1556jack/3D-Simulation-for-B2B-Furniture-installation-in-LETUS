@@ -1,0 +1,148 @@
+- banner:
+  - link "L ↗ LETUS FIELD PLANNER":
+    - /url: /
+  - text: 반입 현장 3D 사전 탐색 실제 공개 지도
+  - button "현장 요약 인쇄"
+- complementary:
+  - text: DELIVERY PROJECT · 001
+  - heading "용인 양지 반입 현장" [level=1]
+  - paragraph: 남평로 111-73 · 목적층 9층
+  - text: 111-73 건물 위치 미확인
+  - navigation "현장 정보":
+    - button "현장 개요"
+    - button "반입 조건"
+    - button "데이터 출처"
+  - group:
+    - heading "출처별 반입 조건" [level=2]
+    - text: 현장 자료 입력
+    - paragraph: 이 현장의 작업 동·출입구는 아직 지도에 확정 연결되지 않았습니다. 아래 기록은 등록 현장에 보관하며, 지도 높이를 실측값으로 가져오지 않습니다.
+    - text: 확인 항목
+    - combobox "확인 항목"
+    - text: 관측값
+    - spinbutton "관측값"
+    - text: 단위
+    - combobox "단위":
+      - option "m" [selected]
+      - option "mm"
+    - text: 출처
+    - textbox "출처":
+      - /placeholder: 도면명·관리사무소 확인자·공식 제원 주소
+      - text: 기능 점검용 합성 데이터 · 실제 현장값 아님
+    - text: 확인일
+    - textbox "확인일": 2026-11-09
+    - text: 확인 방법
+    - combobox "확인 방법":
+      - option "현장 실측" [selected]
+      - option "관리사무소·도면"
+      - option "제조사 제원"
+      - option "공개 자료"
+    - button "기록 추가"
+    - status: "주차장 유효 높이: 이 기록을 선택했습니다. 다른 기록은 이력으로 보존됩니다."
+    - heading "기록 확인 및 선택" [level=2]
+    - text: 6건 확인자
+    - textbox "확인자":
+      - /placeholder: 이 기기에서 자료를 확인하는 담당자
+      - text: 기능 점검
+    - paragraph: 출처·확인일을 검토한 후 사용할 값을 선택하세요. 가져온 기록의 검토 상태는 자동으로 신뢰하지 않습니다.
+    - article:
+      - heading "램프 유효 폭" [level=3]
+      - strong: 4.5 m
+      - text: 선택됨
+      - paragraph: 기능 점검용 합성 데이터 · 실제 현장값 아님 2026-11-09 · 현장 실측
+      - text: 확인자 기능 점검 · 2026-11-09
+      - button "선택 해제"
+    - article:
+      - heading "램프 유효 높이" [level=3]
+      - strong: 4.8 m
+      - text: 선택됨
+      - paragraph: 기능 점검용 합성 데이터 · 실제 현장값 아님 2026-11-09 · 현장 실측
+      - text: 확인자 기능 점검 · 2026-11-09
+      - button "선택 해제"
+    - article:
+      - heading "주차장 유효 높이" [level=3]
+      - strong: 4.8 m
+      - text: 확인 이력
+      - paragraph: 기능 점검용 합성 데이터 · 실제 현장값 아님 2026-11-09 · 현장 실측
+      - text: 확인자 기능 점검 · 2026-11-09
+      - button "확인하여 사용"
+      - strong: 3 m
+      - text: 선택됨
+      - paragraph: 기능 점검용 합성 데이터 · 실제 현장값 아님 2026-11-09 · 현장 실측
+      - text: 확인자 기능 점검 · 2026-11-09
+      - button "선택 해제"
+    - article:
+      - heading "실제 차량 높이" [level=3]
+      - strong: 4 m
+      - text: 선택됨
+      - paragraph: 기능 점검용 합성 데이터 · 실제 현장값 아님 2026-11-09 · 현장 실측
+      - text: 확인자 기능 점검 · 2026-11-09
+      - button "선택 해제"
+    - article:
+      - heading "실제 차량 폭" [level=3]
+      - strong: 2.5 m
+      - text: 선택됨
+      - paragraph: 기능 점검용 합성 데이터 · 실제 현장값 아님 2026-11-09 · 현장 실측
+      - text: 확인자 기능 점검 · 2026-11-09
+      - button "선택 해제"
+    - text: 기록 파일 가져오기
+    - button "현장 기록 파일 가져오기"
+    - heading "입력 조건 비교" [level=2]
+    - paragraph: 아래 비교는 선택한 차량의 직선 구간 외형에 한정합니다. 6대의 실제 제원이 다르면 차량마다 별도로 확인해야 합니다.
+    - text: 높이 여유 (m)
+    - spinbutton "높이 여유 (m)": "0.2"
+    - text: 폭 여유 (m)
+    - spinbutton "폭 여유 (m)": "0.5"
+    - text: 램프 높이 · 차량 이동 외형
+    - strong: 입력 조건상 충족
+    - text: 4.8 m / 차량 4 m · 여유 0.2m 램프 폭 · 직선 구간
+    - strong: 입력 조건상 충족
+    - text: 4.5 m / 차량 2.5 m · 여유 0.5m 주차장 높이 · 차량 이동 외형
+    - strong: 조건 초과
+    - text: 3 m / 차량 4 m · 여유 0.2m
+    - strong: "전체 반입: 조건 초과"
+    - text: 회전·경사 전환부·윙 개방·지게차 하역·바닥 하중은 별도 확인 대상입니다. E/V 탑승은 자동 통과 판정에 포함하지 않습니다.
+    - heading "추가 확인할 데이터 · 20개" [level=2]
+    - group: 미확인 항목 보기
+    - paragraph: 지게차 정격인양하중과 장비 자중은 별도 항목입니다. E/V 하중만으로 지게차의 탑승 가능 여부를 판단하지 않습니다.
+    - paragraph: 공공 API의 램프·주차장·E/V 연동은 미완료입니다. 이 기록은 현재 기기에 저장되며 팀 서버로 자동 공유되지 않습니다.
+  - text: 현장 메모
+  - textbox "현장 메모":
+    - /placeholder: 작업 동·반입구·변경 사항
+  - button "기록 저장"
+  - button "기록 내려받기"
+  - status: 변경 사항을 저장하세요
+- main:
+  - textbox "주소·도로·장소 검색":
+    - /placeholder: 도로명·장소 또는 경도,위도 검색
+  - button "검색"
+  - text: 검색 준비 완료 지역
+  - button "서울"
+  - button "인천"
+  - button "경기"
+  - button "강원"
+  - button "대전"
+  - button "세종"
+  - button "충북"
+  - button "충남"
+  - text: 실제 건물 윤곽
+  - region "Map"
+  - button "Zoom in"
+  - button "Zoom out"
+  - button "Drag to rotate map, click to reset north"
+  - group:
+    - text: ©
+    - link "OpenStreetMap contributors":
+      - /url: https://www.openstreetmap.org/copyright
+    - text: ·
+    - link "Protomaps":
+      - /url: https://protomaps.com
+  - text: 100 m
+  - strong: 용인 양지 · 남평로 주변
+  - text: 주변 탐색 · 정확한 반입구 미확인
+  - button "3D"
+  - button "2D"
+  - button "용인 현장 주변으로 이동": ⌖
+  - text: 지도 높이 있음 높이 미확인
+  - checkbox "미확인 높이를 표시용 6m로 보기" [checked]
+  - text: 미확인 높이를 표시용 6m로 보기 건물 외형 탐색용 · 실측 및 통과 판정용 아님 지도 연결됨 수도권 · 표시 윤곽 177 © OpenStreetMap · Protomaps
+- alert

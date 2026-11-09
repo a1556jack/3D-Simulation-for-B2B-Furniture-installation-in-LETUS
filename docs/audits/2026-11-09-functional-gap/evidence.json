@@ -1,0 +1,11 @@
+{
+  "map": "지도 연결됨",
+  "polygonParts": "177",
+  "routePoints": 2,
+  "individualPassScenario": "3 comparisons pass; overall unknown",
+  "confirmedFailureScenario": "3m parking / 4m vehicle -> overall fail",
+  "overviewAfterFailure": "경로 간섭 검사: 정보 부족\n유효 폭·높이·경사·장비 제원 확인 필요",
+  "exportRouteStatus": "현장 실측 전 · 통과 판정 아님",
+  "exportHasComputedVerdict": false,
+  "pageErrors": []
+}

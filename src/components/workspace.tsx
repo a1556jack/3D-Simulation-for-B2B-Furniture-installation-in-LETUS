@@ -1,6 +1,11 @@
 'use client';
 import InspectionPanel from './inspection-panel';
-import {emptyInspection,parseInspection,PILOT_SITE_ID,type Inspection} from '@/lib/observations';
+import PlanningPanel,{type Capture} from './planning-panel';
+import {usePlanner} from './use-planner';
+import {planningScene} from '@/lib/planning/scene';
+import {toLocal,toWorld} from '@/lib/planning/geometry';
+import {createSection,proofReady,LABELS,type Point} from '@/lib/planning/types';
+import {emptyInspection,parseInspection,checkInspection,PILOT_SITE_ID,type Inspection} from '@/lib/observations';
 import {portableData} from '@/lib/runtime';
 import {useEffect,useMemo,useState} from 'react';
 import dynamic from 'next/dynamic';
@@ -14,7 +19,11 @@ const emptyFields={clearHeight:'',vehicleHeight:'',margin:'',rampWidth:'',elevat
 export default function Workspace(){
  const [target,setTarget]=useState<Target>(pilot),[is3D,set3D]=useState(true),[assumed,setAssumed]=useState(true),[status,setStatus]=useState('지역 지도 불러오는 중'),[archive,setArchive]=useState('수도권'),[count,setCount]=useState(0);
  const [query,setQuery]=useState(''),[places,setPlaces]=useState<SearchPlace[]>([]),[searchStatus,setSearchStatus]=useState('검색 자료 준비 중'),[results,setResults]=useState<ReturnType<typeof searchPlaces>|null>(null);
- const [selected,setSelected]=useState<SelectedBuilding|null>(null),[drawing,setDrawing]=useState(false),[points,setPoints]=useState<[number,number][]>([]),[tab,setTab]=useState<'site'|'conditions'|'sources'>('site');
+ const [selected,setSelected]=useState<SelectedBuilding|null>(null),[drawing,setDrawing]=useState(false),[points,setPoints]=useState<[number,number][]>([]),[tab,setTab]=useState<'site'|'conditions'|'sources'|'plan'>('plan');
+ const planner=usePlanner();
+ const [capture,setCapture]=useState<Capture>(null),[selectedZone,setSelectedZone]=useState(''),[progress,setProgress]=useState(0),[moving,setMoving]=useState<'truck'|'forklift'>('truck');
+ const activeZone=planner.plan.zones.some(z=>z.id===selectedZone)?selectedZone:planner.result.recommendedId??planner.result.candidates[0]?.id??'';
+ const scene=useMemo(()=>planningScene(planner.plan,planner.result,activeZone,progress,moving),[planner.plan,planner.result,activeZone,progress,moving]);
  const [recovery,setRecovery]=useState<{raw:string;reason:string;backupKey?:string}|null>(null);
  const [inspection,setInspection]=useState<Inspection>(emptyInspection);
  const [fields,setFields]=useState(emptyFields),[saveMessage,setSaveMessage]=useState('이 기기에 저장할 수 있습니다');
@@ -36,7 +45,7 @@ export default function Workspace(){
  const total=useMemo(()=>points.slice(1).reduce((s,p,i)=>s+distanceMetres(points[i],p),0),[points]);
  function go(center:[number,number],label:string,zoom=15.8){setSelected(null);setTarget({center,label,zoom,nonce:Date.now()});}
  function search(){const coords=parseCoordinates(query);if(coords){go(coords,'입력 좌표 · 주소 미확인');setResults([]);return;}setResults(searchPlaces(query,places));}
- function save(){try{
+ function save(){planner.save();try{
   let recoveryKey=recovery?.backupKey;
   if(recovery&&!recoveryKey){recoveryKey=`letus-pilot-recovery-${crypto.randomUUID()}`;localStorage.setItem(recoveryKey,recovery.raw);setRecovery({...recovery,backupKey:recoveryKey});}
   // The backup write must succeed before replacing a damaged or mismatched record.
@@ -44,18 +53,20 @@ export default function Workspace(){
   setSaveMessage(recoveryKey?'기록을 저장했습니다. 이전 원본은 복구 사본으로 보존했습니다.':'이 기기에 저장했습니다');
  }catch{setSaveMessage('저장하지 못했습니다. 기존 원본은 유지됩니다. 기록 내려받기를 이용하세요.');}}
  function exportRecovery(){if(!recovery)return;const url=URL.createObjectURL(new Blob([recovery.raw],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='LETUS-복구원본.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
- function exportRecord(){const record={site:'경기도 용인시 처인구 양지읍 남평로 111-73 · 9층',exactBuildingConfirmed:false,equipment:{trucks:{class:'11톤 윙바디',count:6,model:null},forklift:{ratedCapacityTonnes:3,model:null}},legacyObservations:fields,inspection,routeSketch:points,routeStatus:'현장 실측 전 · 통과 판정 아님',mapSource:'OpenStreetMap / Protomaps · PLAYX1/playx-raven-maps',createdAt:new Date().toISOString()};const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='LETUS-용인-현장기록.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+ function exportRecord(){const record={site:'경기도 용인시 처인구 양지읍 남평로 111-73 · 9층',exactBuildingConfirmed:false,equipment:{trucks:{class:'11톤 윙바디',count:6,model:null},forklift:{ratedCapacityTonnes:3,model:null}},legacyObservations:fields,inspection,inspectionResult:checkInspection(inspection),plan:planner.plan,planningResult:planner.result,routeSketch:points,routeStatus:'현장 실측 전 · 통과 판정 아님',mapSource:'OpenStreetMap / Protomaps · PLAYX1/playx-raven-maps',createdAt:new Date().toISOString()};const url=URL.createObjectURL(new Blob([JSON.stringify(record,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='LETUS-용인-현장기록.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  return <div className="app-shell">
-  <header className="app-header"><a className="brand" href={`${base}/`}><span className="brand-mark">L<span>↗</span></span><span>LETUS<small>FIELD PLANNER</small></span></a><div className="header-divider"/><div className="workspace-title">반입 현장 3D <span>사전 탐색</span></div><div className="header-actions"><span className="live-dot"/>실제 공개 지도<button className="small-button" onClick={()=>window.print()}>현장 요약 인쇄</button></div></header>
+  <header className="app-header"><a className="brand" href={`${base}/`}><span className="brand-mark">L<span>↗</span></span><span>LETUS<small>FIELD PLANNER</small></span></a><div className="header-divider"/><div className="workspace-title">반입 현장 3D <span>사전 탐색</span></div><div className="header-actions"><span className="live-dot"/>실제 공개 지도<button className="small-button" onClick={()=>{setTab('plan');planner.issue(activeZone);}}>작업서 발행</button></div></header>
   <div className="main-layout">
    <aside className="sidebar">
-    <div className="project-heading"><span className="eyebrow">DELIVERY PROJECT · 001</span><h1>용인 양지 반입 현장</h1><p>남평로 111-73 · 목적층 9층</p><span className="badge amber">111-73 건물 위치 미확인</span></div>
-    <nav className="tabs" aria-label="현장 정보"><button className={tab==='site'?'active':''} onClick={()=>setTab('site')}>현장 개요</button><button className={tab==='conditions'?'active':''} onClick={()=>setTab('conditions')}>반입 조건</button><button className={tab==='sources'?'active':''} onClick={()=>setTab('sources')}>데이터 출처</button></nav>
+    <div className="project-heading"><span className="eyebrow">DELIVERY PROJECT · 001</span><h1>용인 양지 반입 현장</h1><p>남평로 111-73 · 목적층 9층</p><span className="badge amber">{planner.plan.mode==='site'&&proofReady(planner.plan.site.proof)?'사용자 확인 반입구 연결':'111-73 건물 위치 미확인'}</span></div>
+    <nav className="tabs" aria-label="현장 정보"><button className={tab==='plan'?'active':''} onClick={()=>setTab('plan')}>반입 계획</button><button className={tab==='site'?'active':''} onClick={()=>setTab('site')}>현장 개요</button><button className={tab==='conditions'?'active':''} onClick={()=>setTab('conditions')}>반입 조건</button><button className={tab==='sources'?'active':''} onClick={()=>setTab('sources')}>데이터 출처</button></nav>
     <div className="sidebar-content">
+    {tab==='plan'&&<PlanningPanel plan={planner.plan} result={planner.result} onChange={planner.update} capture={capture} onCapture={setCapture} selectedId={activeZone} onSelect={id=>{setSelectedZone(id);setProgress(0);}} progress={progress} onProgress={setProgress} moving={moving} onMoving={setMoving} onFocus={point=>go(toWorld(point,planner.plan.origin),'반입 계획 · 지정 위치',18.5)} order={planner.order} onIssue={()=>planner.issue(activeZone)} onExample={()=>{planner.showExample();setCapture(null);setProgress(0);go(planner.plan.origin,'합성 계산 예제 · 실제 현장 아님',18);}} onExitExample={()=>{planner.exitExample();setCapture(null);go(pilot.center,pilot.label);}} recovery={planner.recovery}/>}
+
     {tab==='site'&&<>
      <section><div className="section-title"><h2>현장 위치</h2><span className="step-number">01</span></div><p className="address">경기도 용인시 처인구 양지읍<br/>남평로 111-73</p><p className="muted">공개 지도에서 남평로를 확인했습니다. 핀은 도로 주변이며, 실제 작업 동·출입구는 아직 연결되지 않았습니다.</p><button className="outline-button full" onClick={()=>go(pilot.center,pilot.label)}>⌖ 남평로 주변 보기</button></section>
      <section><div className="section-title"><h2>반입 장비</h2><span className="step-number">02</span></div><div className="equipment"><span className="equipment-icon">▰</span><div><strong>11톤 윙바디</strong><p>차량 모델·실제 외형 미확인</p></div><b>6<span>대</span></b></div><div className="equipment"><span className="equipment-icon">♧</span><div><strong>3톤 지게차</strong><p>정격인양하중 · 자중과 별도</p></div><b>3<span>t</span></b></div><p className="muted">톤급만으로 차량 크기나 지게차 통과 여부를 판단하지 않습니다.</p></section>
-     <section><div className="section-title"><h2>반입 경로 스케치</h2><span className="step-number">03</span></div><p className="muted">지도 위를 순서대로 눌러 접근 동선을 기록하세요. 거리는 지도상 수평 거리입니다.</p><button className={drawing?'primary-button full':'outline-button full'} onClick={()=>setDrawing(!drawing)}>{drawing?'✓ 경로 그리기 마침':'＋ 지도에 경로 그리기'}</button>{points.length>0&&<div className="route-summary"><span>{points.length}개 지점 · 약 {Math.round(total)}m</span><button onClick={()=>setPoints(points.slice(0,-1))}>되돌리기</button><button onClick={()=>setPoints([])}>초기화</button></div>}<div className="notice compact">경로 간섭 검사: 정보 부족<br/><small>유효 폭·높이·경사·장비 제원 확인 필요</small></div></section>
+     <section><div className="section-title"><h2>반입 경로 스케치</h2><span className="step-number">03</span></div><p className="muted">지도 위를 순서대로 눌러 접근 동선을 기록하세요. 거리는 지도상 수평 거리입니다.</p><button className={drawing?'primary-button full':'outline-button full'} onClick={()=>setDrawing(!drawing)}>{drawing?'✓ 경로 그리기 마침':'＋ 지도에 경로 그리기'}</button>{points.length>0&&<div className="route-summary"><span>{points.length}개 지점 · 약 {Math.round(total)}m</span><button onClick={()=>setPoints(points.slice(0,-1))}>되돌리기</button><button onClick={()=>setPoints([])}>초기화</button></div>}<div className={`notice compact status-${checkInspection(inspection).overall}`} data-testid="overview-inspection">기록 조건 비교: {LABELS[checkInspection(inspection).overall]}<br/><small>출처별 단일 차량 치수 비교 결과</small></div><div className={`notice compact status-${planner.result.status}`}>반입 후보: {LABELS[planner.result.status]}<br/><button className="text-button" onClick={()=>setTab('plan')}>경로·하차 후보 검사 보기</button></div></section>
     </>}
     {tab==='conditions'&&<><InspectionPanel store={inspection} onChange={next=>{setInspection(next);setSaveMessage('변경 사항을 저장하세요');}} hasLegacy={Object.entries(fields).some(([k,v])=>k!=='notes'&&!!v)}/><section><label className="field">현장 메모<textarea maxLength={10000} value={fields.notes} onChange={e=>setFields({...fields,notes:e.target.value})} placeholder="작업 동·반입구·변경 사항" rows={4}/></label></section></>}
     {tab==='sources'&&<>
@@ -64,17 +75,24 @@ export default function Workspace(){
      <section><h2>출처 및 이용조건</h2><p><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap · ODbL ↗</a></p><p><a href="https://github.com/PLAYX1/playx-raven-maps/tree/a30620ace8a174a0d7474c4785f564f22cdac064" target="_blank" rel="noreferrer">배포 원본 · PLAYX1 ↗</a></p></section>
     </>}
     </div>
-    <footer className="sidebar-footer">{recovery&&<div className="recovery-notice"><small>{recovery.reason}</small><button className="text-button" onClick={exportRecovery}>복구 원본 내려받기</button></div>}<div className="save-row"><button className="primary-button" onClick={save}>기록 저장</button><button className="outline-button" onClick={exportRecord}>기록 내려받기</button></div><small role="status">{saveMessage}</small></footer>
+    <footer className="sidebar-footer">{recovery&&<div className="recovery-notice"><small>{recovery.reason}</small><button className="text-button" onClick={exportRecovery}>복구 원본 내려받기</button></div>}<div className="save-row"><button className="primary-button" onClick={save}>기록 저장</button><button className="outline-button" onClick={exportRecord}>기록 내려받기</button></div><small role="status">{saveMessage}</small>{planner.storageMessage&&<small role="status">{planner.storageMessage}</small>}</footer>
    </aside>
    <main className="map-workspace">
     <div className="map-topbar"><form className="search" onSubmit={e=>{e.preventDefault();search();}}><span aria-hidden="true">⌕</span><input aria-label="주소·도로·장소 검색" placeholder="도로명·장소 또는 경도,위도 검색" value={query} onChange={e=>setQuery(e.target.value)}/><button type="submit" disabled={!places.length}>검색</button></form><span className="search-status" data-testid="search-ready">{searchStatus}</span></div>
     <div className="region-bar"><span>지역</span>{regions.map(r=><button key={r.label} onClick={()=>go(r.center,r.label+' · 중심부',15.5)}>{r.label}</button>)}<span className="region-meta">실제 건물 윤곽</span></div>
     <div className="map-stage">
-     <MapCanvas target={target} is3D={is3D} assumed={assumed} drawing={drawing} points={points} onPoint={p=>setPoints(previous=>[...previous,p])} onBuilding={setSelected} onStatus={setStatus} onStats={setCount} onArchive={setArchive}/>
+     <MapCanvas target={target} is3D={is3D} assumed={assumed} drawing={drawing||!!capture} points={points} scene={scene} onPoint={point=>{
+      if(!capture){setPoints(previous=>[...previous,point]);return;}
+      const local=toLocal(point,planner.plan.origin);if(local.some(n=>Math.abs(n)>10000)){setSaveMessage('현장 기준점 10km 안에서 지정하세요.');return;}
+      const p=planner.plan;
+      if(capture.kind==='route')planner.update({...p,routes:p.routes.map(r=>r.id===capture.id&&r.points.length<24?{...r,points:[...r.points,local],sections:r.points.length?[...r.sections,createSection()]:[],surveyed:false,proof:{...r.proof,confirmed:false}}:r)});
+      else if(capture.kind==='zone'){planner.update({...p,zones:p.zones.map(z=>z.id===capture.id?{...z,center:local,proof:{...z.proof,confirmed:false}}:z)});setCapture(null);}
+      else{planner.update({...p,obstacles:p.obstacles.map(o=>o.id===capture.id?{...o,center:local,proof:{...o.proof,confirmed:false}}:o)});setCapture(null);}
+     }} onBuilding={setSelected} onStatus={setStatus} onStats={setCount} onArchive={setArchive}/>
      <div className="map-location"><span className="live-dot"/><div><strong data-testid="current-location">{target.label}</strong><small>주변 탐색 · 정확한 반입구 미확인</small></div></div>
      {results!==null&&<div className="search-results" data-testid="search-results"><div><strong>지도 검색 결과</strong><button aria-label="검색 결과 닫기" onClick={()=>setResults(null)}>×</button></div><small>도로·장소의 주변 위치입니다. 건물 번호를 확정하지 않습니다.</small>{results.length?results.map((r,i)=><button className="search-result" key={`${r.name}-${i}`} onClick={()=>{go(r.center,`${r.name} 주변`);setResults(null);}}><strong>{r.name}</strong><span>{r.kind==='road'?'도로 주변':'장소 주변'} · {r.center.map(n=>n.toFixed(4)).join(', ')}</span></button>):<p>{parseCoordinates(query)?'입력한 좌표로 이동했습니다.':'검색 결과가 없습니다. 도로명 또는 경도,위도로 검색하세요.'}</p>}</div>}
      <div className="map-tools"><button className={is3D?'active':''} onClick={()=>set3D(true)}>3D</button><button className={!is3D?'active':''} onClick={()=>set3D(false)}>2D</button><button aria-label="용인 현장 주변으로 이동" title="용인 현장 주변" onClick={()=>go(pilot.center,pilot.label)}>⌖</button></div>
-     {drawing&&<div className="drawing-hint">지도 클릭으로 동선 추가 · 통과 검사가 아닌 경로 스케치</div>}
+     {(drawing||capture)&&<div className="drawing-hint">{capture?'지도 클릭으로 계획 위치 지정 · 치수와 출처 확인 필요':'지도 클릭으로 동선 추가 · 통과 검사가 아닌 경로 스케치'}</div>}{planner.plan.mode==='example'&&<div className="map-example">합성 계산 예제 · 실제 현장의 경로·장비가 아닙니다</div>}
      {selected&&<div className="building-card"><button className="close" aria-label="건물 정보 닫기" onClick={()=>setSelected(null)}>×</button><span className="eyebrow">MAP BUILDING</span><h3>선택한 건물 윤곽</h3><dl><dt>지도 높이</dt><dd>{selected.height!==null?`${selected.height}m · 실측 미검증`:'정보 없음'}</dd><dt>건물 주소</dt><dd>연결되지 않음</dd><dt>내부·반입 조건</dt><dd>정보 부족</dd></dl><p>지도에서 일반화된 외형입니다. 건물 번호·실내 높이·램프 통과 치수로 사용할 수 없습니다.</p></div>}
      <div className="map-legend"><div><i className="legend-dot known"/>지도 높이 있음 <i className="legend-dot unknown"/>높이 미확인</div><label><input type="checkbox" checked={assumed} onChange={e=>setAssumed(e.target.checked)}/> 미확인 높이를 표시용 6m로 보기</label><small>건물 외형 탐색용 · 실측 및 통과 판정용 아님</small></div>
     </div>
